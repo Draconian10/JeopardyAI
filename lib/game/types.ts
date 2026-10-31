@@ -1,6 +1,9 @@
 import type { Board } from './schema';
 export type Phase =
   | 'lobby'
+  | 'practiceReady'
+  | 'practiceOpen'
+  | 'practiceAnswer'
   | 'board'
   | 'question'
   | 'answering'
@@ -56,6 +59,10 @@ export interface Session {
   questionId?: string;
   windowId?: string;
   deadline?: number;
+  answerLimitSeconds?: number;
+  answerDeadline?: number;
+  answerRemaining?: number;
+  lastTimeout?: { playerId: string; at: number };
   questionOpenedAt?: number;
   remaining: number;
   respondent?: string;
@@ -84,6 +91,7 @@ export interface Context {
   actionId: string;
   expectedVersion: number;
   pinVerified?: boolean;
+  dashboardEnd?: boolean;
 }
 export interface SessionView {
   id: string;
@@ -120,6 +128,10 @@ export interface SessionView {
   remaining: number;
   questionOpenedAt?: number;
   deadline?: number;
+  answerLimitSeconds?: number;
+  answerDeadline?: number;
+  answerRemaining?: number;
+  lastTimeout?: { playerId: string; at: number };
   windowId?: string;
   respondent?: string;
   attempted: string[];

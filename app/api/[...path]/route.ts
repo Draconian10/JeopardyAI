@@ -294,6 +294,29 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
           ),
         );
       }
+      if (req.method === 'POST' && op === 'end') {
+        hostOnly(user);
+        await limit(req, user.id, 'commands', 60, 60);
+        const body = z
+          .object({ actionId: uuid, confirmed: z.literal(true) })
+          .strict()
+          .parse(await json(req));
+        const row = await readSession(id);
+        if (row.state.hostId !== user.id)
+          throw new GameError('Only the host can end this session.', 403);
+        await mutate(
+          id,
+          { type: 'end' },
+          {
+            userId: user.id,
+            now: Date.now(),
+            actionId: body.actionId,
+            expectedVersion: row.state.actionVersion,
+            dashboardEnd: true,
+          },
+        );
+        return NextResponse.json({ id, ended: true });
+      }
       if (req.method === 'POST' && op === 'command') {
         const body = envelopeSchema.parse(await json(req));
         let verified = false;

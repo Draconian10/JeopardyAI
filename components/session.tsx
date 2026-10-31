@@ -26,6 +26,9 @@ import {
 import { HostAuth, SetupNotice } from './auth';
 import { configured, money } from '@/lib/client';
 import { useSession } from './use-session';
+import Standings from './standings';
+import PracticeRound from './practice-round';
+import { PRACTICE_PHASES } from '@/lib/game/engine';
 import type { SessionView } from '@/lib/game/types';
 export default function GameSession({
   id,
@@ -38,57 +41,6 @@ export default function GameSession({
   if (!configured()) return <SetupNotice />;
   return <SessionInner id={id} role={role} />;
 }
-function Standings({ s, compact = false }: { s: SessionView; compact?: boolean }) {
-  const sorted = [...s.players].sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
-  // Include every score change for this exact question, including multiple misses.
-  const questionEvents = s.events.filter((e) => e.questionId === s.question?.id);
-  const deltas = Object.fromEntries(
-    s.players.map((p) => [
-      p.id,
-      questionEvents.filter((e) => e.playerId === p.id).reduce((sum, e) => sum + e.delta, 0),
-    ]),
-  );
-  const prior = [...s.players].sort(
-    (a, b) =>
-      b.score - (deltas[b.id] ?? 0) - (a.score - (deltas[a.id] ?? 0)) ||
-      a.name.localeCompare(b.name),
-  );
-  return (
-    <div className={`standings ${compact ? 'compact' : ''}`}>
-      <div className="section-line">
-        <h2>
-          <Trophy size={18} /> {s.phase === 'finished' ? 'Final standings' : 'Standings'}
-        </h2>
-      </div>
-      {sorted.map((p, i) => {
-        const delta = deltas[p.id] ?? 0;
-        const movement = prior.findIndex((x) => x.id === p.id) - i;
-        return (
-          <div className={`standing-row ${i === 0 ? 'leader' : ''}`} key={p.id}>
-            <span className="rank">{i === 0 ? <Trophy size={17} /> : i + 1}</span>
-            <span className="player-avatar">{p.name.slice(0, 1).toUpperCase()}</span>
-            <div className="standing-name">
-              <b>{p.name}</b>
-              {s.phase === 'lobby' && (
-                <small>{s.serverNow - p.lastSeen < 15000 ? 'Connected' : 'Away'}</small>
-              )}
-            </div>
-            <div className="standing-score">
-              <b>{money(p.score)}</b>
-              {s.phase === 'reveal' && (
-                <small className={delta < 0 ? 'negative' : 'positive'}>
-                  {delta ? `${delta > 0 ? '+' : ''}${money(delta)}` : '—'}{' '}
-                  {movement ? `${movement > 0 ? '↑' : '↓'} ${Math.abs(movement)}` : ''}
-                </small>
-              )}
-            </div>
-          </div>
-        );
-      })}
-      {!sorted.length && <p className="muted">Your contenders will appear here.</p>}
-    </div>
-  );
-}
 function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'audience' }) {
   const {
     state: s,
@@ -100,6 +52,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
     busy,
     send,
     remaining,
+    answerRemaining,
   } = useSession(id, role);
   const [pin, setPin] = useState('');
   const [wager, setWager] = useState('0');
@@ -176,7 +129,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
     connected &&
     !busy &&
     !s.paused &&
-    s.phase === 'question' &&
+    ['question', 'practiceOpen'].includes(s.phase) &&
     remaining > 0 &&
     !s.attempted.includes(userId);
   useEffect(() => {
@@ -206,7 +159,8 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
         </Link>
       </div>
     );
-  const seconds = Math.ceil(remaining / 1000);
+  const answerClock = s.phase === 'answering' && answerRemaining !== undefined;
+  const seconds = Math.ceil((answerClock ? answerRemaining : remaining)! / 1000);
   const answering = s.players.find((p) => p.id === s.respondent);
   const daily = s.players.find((p) => p.id === s.daily?.playerId);
   const finalEntry = s.finalEntries[userId];
@@ -216,14 +170,20 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
   const judgment = (type: 'judge' | 'dailyJudge', correct: boolean) => void send({ type, correct });
   const timer = (
     <div
-      className={`timer ${seconds <= 5 && s.deadline ? 'urgent' : ''}`}
+      className={`timer ${seconds <= 5 && (s.deadline || s.answerDeadline) ? 'urgent' : ''}`}
       aria-label={`${seconds} seconds remaining`}
     >
       <span>
         {String(Math.floor(seconds / 60)).padStart(2, '0')}:{String(seconds % 60).padStart(2, '0')}
       </span>
       <small>
-        {s.paused ? 'PAUSED' : s.phase === 'answering' ? 'TIMER PAUSED' : 'TIME REMAINING'}
+        {s.paused
+          ? 'PAUSED'
+          : answerClock
+            ? 'ANSWER DEADLINE'
+            : s.phase === 'answering'
+              ? 'TIMER PAUSED'
+              : 'TIME REMAINING'}
       </small>
     </div>
   );
@@ -397,6 +357,37 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
             )}
             {control && (
               <div className="lobby-controls">
+                <label className="answer-limit-setting">
+                  Answer deadline after buzzing
+                  <select
+                    aria-label="Answer deadline after buzzing"
+                    value={s.answerLimitSeconds ?? 0}
+                    disabled={busy || s.paused}
+                    onChange={(e) =>
+                      void send({ type: 'configure', answerLimitSeconds: Number(e.target.value) })
+                    }
+                  >
+                    <option value={0}>Off — host judges without a deadline</option>
+                    {[5, 10, 15, 20, 30, 45, 60].map((n) => (
+                      <option key={n} value={n}>
+                        {n} seconds
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <p className="muted small">
+                  An expired answer counts as incorrect and deducts the tile value. Daily Double and
+                  Final Jeopardy are unchanged.
+                </p>
+                <button
+                  className="button secondary full"
+                  disabled={busy || s.paused || !s.players.length}
+                  onClick={() => void send({ type: 'practiceStart' })}
+                >
+                  <Zap size={16} />
+                  Start practice round
+                </button>
+
                 <button
                   className="button secondary full"
                   disabled={busy || s.paused}
@@ -479,6 +470,26 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                   of {s.players.length}
                 </small>
               </div>
+            )}
+            {PRACTICE_PHASES.includes(s.phase) && (
+              <PracticeRound
+                s={s}
+                player={player}
+                userId={userId}
+                control={!!control}
+                busy={busy}
+                connected={connected}
+                remaining={remaining}
+                timer={timer}
+                send={send}
+              />
+            )}
+            {s.lastTimeout && (
+              <p className="timeout-notice" role="status">
+                Answer time expired for{' '}
+                {s.players.find((p) => p.id === s.lastTimeout?.playerId)?.name}. The tile value was
+                deducted.{s.phase === 'question' ? ' Other eligible players can buzz now.' : ''}
+              </p>
             )}
             {s.phase === 'board' &&
               (player ? (

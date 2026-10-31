@@ -39,6 +39,7 @@ function DashboardInner() {
   const [separate, setSeparate] = useState(false);
   const [busy, setBusy] = useState(false);
   const [requestId, setRequestId] = useState('');
+  const [ending, setEnding] = useState<string>();
   const router = useRouter();
   const refresh = useCallback(() => {
     api<DashboardData>('games')
@@ -121,12 +122,43 @@ function DashboardInner() {
                                 {s.players} players · {new Date(s.createdAt).toLocaleString()}
                               </small>
                             </div>
-                            <Link
-                              className="button small-button primary"
-                              href={`/host/session/${s.id}`}
-                            >
-                              Resume <Play size={13} />
-                            </Link>
+                            <div className="session-actions">
+                              <Link
+                                className="button small-button primary"
+                                href={`/host/session/${s.id}`}
+                              >
+                                Resume <Play size={13} />
+                              </Link>
+                              <button
+                                type="button"
+                                className="button small-button danger"
+                                disabled={!!ending}
+                                aria-label={`End session ${s.joinCode}`}
+                                onClick={async () => {
+                                  if (
+                                    !window.confirm(
+                                      `End session ${s.joinCode} permanently? Scores and history will be saved, but this session cannot be resumed.`,
+                                    )
+                                  )
+                                    return;
+                                  setEnding(s.id);
+                                  setError('');
+                                  try {
+                                    await api(`sessions/${s.id}/end`, 'POST', {
+                                      actionId: crypto.randomUUID(),
+                                      confirmed: true,
+                                    });
+                                    refresh();
+                                  } catch (error) {
+                                    setError((error as Error).message);
+                                  } finally {
+                                    setEnding(undefined);
+                                  }
+                                }}
+                              >
+                                {ending === s.id ? 'Ending…' : 'End session'}
+                              </button>
+                            </div>
                           </div>
                         ))}
                         <div className="card-actions">

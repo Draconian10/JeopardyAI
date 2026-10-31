@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { applyCommand, createSession, viewSession } from '../../lib/game/engine';
+import { applyCommand, createSession, viewSession, reconcile } from '../../lib/game/engine';
 import { starterBoard } from '../../lib/game/starter';
 import { playerSessionSummary } from '../../lib/game/player-sessions';
 import { parseQuestionJson, QUESTION_JSON_EXAMPLE } from '../../lib/game/question-json';
@@ -84,7 +84,7 @@ async function mock(page: Page, initial: Session, userId = HOST) {
               id: s.id,
               gameId: s.gameId,
               joinCode: s.joinCode,
-              active: true,
+              active: !['ended', 'finished'].includes(s.phase),
               phase: s.phase,
               players: s.players.length,
               createdAt: new Date().toISOString(),
@@ -96,6 +96,23 @@ async function mock(page: Page, initial: Session, userId = HOST) {
       return route.fulfill({ json: { id: s.gameId, board: s.board, version: 0 } });
     if (url.pathname === `/api/games/${s.gameId}` && request.method() === 'PUT')
       return route.fulfill({ json: { id: s.gameId, version: 1 } });
+    if (url.pathname === `/api/sessions/${s.id}/end`) {
+      const body = request.postDataJSON();
+      if (userId !== HOST || body.confirmed !== true)
+        return route.fulfill({ status: 403, json: { error: 'Not authorized or unconfirmed' } });
+      s = applyCommand(
+        s,
+        { type: 'end' },
+        {
+          userId,
+          now: Date.now(),
+          actionId: body.actionId,
+          expectedVersion: s.actionVersion,
+          dashboardEnd: true,
+        },
+      );
+      return route.fulfill({ json: { id: s.id, ended: true } });
+    }
     if (url.pathname === `/api/sessions/${s.id}/command`) {
       const body = request.postDataJSON();
       controller = body.controller;
@@ -110,6 +127,14 @@ async function mock(page: Page, initial: Session, userId = HOST) {
         });
       } catch (error) {
         return route.fulfill({ status: 400, json: { error: (error as Error).message } });
+      }
+    }
+    if (request.method() === 'GET' && url.pathname === `/api/sessions/${s.id}`) {
+      const before = JSON.stringify(s);
+      reconcile(s, Date.now());
+      if (JSON.stringify(s) !== before) {
+        s.version++;
+        s.actionVersion++;
       }
     }
     return route.fulfill({
@@ -289,4 +314,113 @@ test('ended sessions do not show a player return link', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('link', { name: 'Join a game' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Return to game' })).toHaveCount(0);
+});
+
+async function claimHost(page: Page, s: Session) {
+  await page.goto(`/host/session/${s.id}`);
+  await page.getByLabel('Host PIN').fill('123456');
+  await page.getByRole('button', { name: 'Resume / take control' }).click();
+  await page.getByRole('button', { name: 'Continue game', exact: false }).first().click();
+}
+test('dashboard can end a session directly without entering a host PIN', async ({ page }) => {
+  const s = fixture();
+  const current = await mock(page, s);
+  await page.goto('/host');
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: `End session ${s.joinCode}`, exact: true }).click();
+  await expect(page.getByRole('link', { name: 'Resume', exact: false })).toHaveCount(0);
+  expect(current().phase).toBe('ended');
+  expect(current().players).toHaveLength(1);
+  await expect(page.getByLabel('Host PIN')).toHaveCount(0);
+});
+test('canceling dashboard end keeps the session active', async ({ page }) => {
+  const s = fixture();
+  const current = await mock(page, s);
+  await page.goto('/host');
+  page.once('dialog', (dialog) => dialog.dismiss());
+  await page.getByRole('button', { name: `End session ${s.joinCode}`, exact: true }).click();
+  expect(current().phase).toBe('lobby');
+  await expect(page.getByRole('link', { name: 'Resume', exact: false })).toBeVisible();
+});
+test('host configures an answer deadline and runs practice before the real game', async ({
+  page,
+}) => {
+  const s = fixture();
+  const current = await mock(page, s);
+  await claimHost(page, s);
+  await page.getByLabel('Answer deadline after buzzing', { exact: true }).selectOption('10');
+  await expect.poll(() => current().answerLimitSeconds).toBe(10);
+  await page.getByRole('button', { name: 'Start practice round', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Practice buzzer round' })).toBeVisible();
+  await page.getByRole('button', { name: 'Reset practice buzzer' }).click();
+  await page.getByRole('button', { name: 'Finish practice', exact: false }).click();
+  await expect(page.getByRole('button', { name: 'Start Jeopardy' })).toBeVisible();
+  expect(current().players[0].score).toBe(0);
+  expect(current().used).toHaveLength(0);
+});
+test('player can win a practice buzz without earning points', async ({ page }) => {
+  const s = fixture();
+  s.phase = 'practiceOpen';
+  s.windowId = crypto.randomUUID();
+  s.deadline = Date.now() + 30000;
+  const current = await mock(page, s, PLAYER);
+  await page.goto(`/play/${s.id}`);
+  await page.getByRole('button', { name: 'BUZZ!', exact: false }).click();
+  await expect(page.getByText('Alex buzzed first!')).toBeVisible();
+  expect(current().players[0].score).toBe(0);
+  expect(current().events).toHaveLength(0);
+});
+test('standings reorder with rank movement when an answer changes the leader', async ({ page }) => {
+  const s = fixture();
+  const second = '55555555-5555-4555-8555-555555555555';
+  s.players[0].score = 1000;
+  s.players.push({ id: second, name: 'Sam', score: 800, lastSeen: Date.now(), removed: false });
+  s.phase = 'answering';
+  s.questionId = s.board.questions.find((q) => q.value === 400 && !q.dailyDouble)!.id;
+  s.respondent = second;
+  await mock(page, s);
+  await claimHost(page, s);
+  await page.getByRole('button', { name: 'Correct', exact: true }).click();
+  await expect(page.locator('.score-sidebar .standing-row').first()).toHaveAttribute(
+    'data-player-id',
+    second,
+  );
+  await expect(page.locator('.reveal-stage .standing-row').first()).toHaveAttribute(
+    'data-player-id',
+    second,
+  );
+  await expect(page.locator('.score-sidebar').getByLabel('Moved up 1 place')).toBeVisible();
+  await expect
+    .poll(() =>
+      page
+        .locator('.score-sidebar .standing-row')
+        .evaluateAll(
+          (rows) =>
+            rows.flatMap((row) => row.getAnimations()).filter((a) => a.playState === 'running')
+              .length,
+        ),
+    )
+    .toBe(0);
+});
+
+test('answer deadline expires on the server and deducts points before reopening the buzzer', async ({
+  page,
+}) => {
+  const s = fixture();
+  const second = '55555555-5555-4555-8555-555555555555';
+  s.players.push({ id: second, name: 'Sam', score: 0, lastSeen: Date.now(), removed: false });
+  s.phase = 'answering';
+  s.questionId = s.board.questions[0].id;
+  s.respondent = PLAYER;
+  s.windowId = crypto.randomUUID();
+  s.answerLimitSeconds = 5;
+  s.answerRemaining = 1200;
+  s.answerDeadline = Date.now() + 1200;
+  s.remaining = 29000;
+  const current = await mock(page, s, PLAYER);
+  await page.goto(`/play/${s.id}`);
+  await expect.poll(() => current().phase).toBe('question');
+  await expect(page.locator('.personal-score strong')).toHaveText('-$200');
+  await expect(page.getByText(/Answer time expired for Alex/)).toBeVisible();
+  expect(current().events).toHaveLength(1);
 });

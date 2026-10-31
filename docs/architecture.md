@@ -69,3 +69,13 @@ Session JSON is intentionally simple and suitable for casual rooms. For large nu
 The editor can validate pasted JSON through the authenticated `POST /api/games/import` endpoint. Shared schemas enforce a complete rectangular board, bounded values/text, unique category names, one Daily Double, and Final Jeopardy before conversion to internal question IDs. Validation does not write or start a game; applying the returned board uses the existing version-protected save/autosave path.
 
 Migration `002_question_json.sql` adds stored generated `question_json` columns to saved games and sessions. PostgreSQL builds them from the authoritative board in category/row order, automatically backfilling old records and updating the saved representation after every visual edit or duplication. The session representation derives from its frozen session board. This avoids storing conflicting copies of pasted JSON and manually edited questions. Private answer access remains unchanged; the generated columns are not part of player or audience projections.
+
+## Practice, answer deadlines, dashboard ending, and standings
+
+Practice uses separate `practiceOpen`, `practiceAnswer`, and `practiceReady` phases. Buzzes use the same atomic window arbitration, while score events and board tile consumption remain untouched. Host resets generate a fresh window ID, and Finish Practice returns to the lobby.
+
+An optional `answerLimitSeconds` session setting defaults to zero for backward compatibility. After a normal buzz, `answerDeadline`/`answerRemaining` run independently from the paused question buzzer time. Reconciliation processes answer expiry at the authoritative deadline instant, then processes any subsequent buzzer expiry up to the host-disconnect boundary. A deterministic timeout event ID, cleared deadline, and CAS commit prevent repeat deductions. Pause/claim freeze both clocks. Undo restores the prior respondent and score but leaves further judgment manual.
+
+`POST /api/sessions/:id/end` requires a permanent authenticated host, stored session ownership, an action UUID, and explicit confirmation. Only this route supplies the internal `dashboardEnd` context to bypass PIN/controller/version requirements for the terminal End action. Client command envelopes cannot supply that context; engine ownership checks remain mandatory. Retried terminal ends are no-ops.
+
+Standings use a shared ranking calculation and keyed DOM rows. A layout effect animates each row from its previous offset to its new offset, including pre-question positions on the reveal screen, without changing authoritative ordering or scores. Heartbeat-only refreshes do not restart animation. Reduced-motion preferences disable movement.

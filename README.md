@@ -13,7 +13,8 @@ A responsive, self-hostable Jeopardy game for **Next.js + Vercel + Supabase**. T
 - Correct/incorrect scoring, remaining-time resumption after a miss, one attempt per player per question, and answer reveal.
 - Hidden Daily Double, host-selected participant, and wagers capped at the absolute score.
 - Final Jeopardy category → private wagers → 30-second written answers → individual judging → joint winners if tied.
-- Standings after every question with score changes and rank movement.
+- Animated standings after every question with score changes, moving player rows, and rank movement; reduced-motion preferences are respected.
+- End sessions directly from the host dashboard, unscored practice buzzers, and an optional per-session answer deadline.
 - Persistent sessions, automatic host-disconnect pause, PIN-protected Resume, explicit Continue, and one controlling host tab.
 - Private audience display, keyboard buzzer, optional sound/vibration, responsive layouts, reduced-motion support.
 
@@ -92,7 +93,7 @@ Taking control in another tab pauses the game and invalidates the previous contr
 ## Game rules
 
 - Selecting a regular tile immediately displays the question and opens a 30-second buzzer window.
-- First valid server-accepted buzz wins. The timer pauses during the spoken answer and host judgment; spoken answers have no automatic deadline.
+- First valid server-accepted buzz wins. The 30-second buzzer timer pauses during the spoken answer. By default spoken answers have no deadline; the host can enable a separate 5–60 second answer deadline in the lobby.
 - Correct: award the tile value and reveal the answer. Incorrect: deduct the tile value, exclude that player for this question, and resume the **remaining** time with a fresh buzzer-window ID.
 - When time expires or everyone has missed, reveal the answer. Host chooses when to return to the board.
 - Daily Double: no buzzer; host chooses the player, locks the wager, reveals the question, and judges the spoken answer.
@@ -157,3 +158,13 @@ Engine tests use deterministic clocks. Database tests execute the actual migrati
 ## Returning as a player
 
 Going Home does not remove a player from their session. Home and Join Game show **Return to game** for unfinished sessions belonging to the currently signed-in player. This survives page refreshes and restores the existing player seat and score without entering the code/name again. Finished/ended sessions and removed players are excluded. The lookup uses authenticated server-side membership checks and returns only safe session summaries. Guest recovery requires the same browser profile's retained authentication storage; no additional database migration is needed.
+
+## Game-night controls
+
+- **Dashboard End session:** End any unfinished session beside its Resume button after explicit confirmation. The signed-in owner is required, but no game PIN or controller claim is needed. Scores/history remain saved, the join code becomes inactive, and all connected views receive the update. Ending does not delete the board.
+- **Practice:** In the host lobby, select Start practice round. Everyone gets a 30-second practice buzzer window. First accepted buzz wins the practice attempt; the host can reset it repeatedly or Finish practice to return to the lobby. No points, question consumption, Daily Double, or Final wagers are affected. Players may keep joining while practice is running if the lobby is unlocked.
+- **Answer deadline:** In the lobby choose Off (default), or 5, 10, 15, 20, 30, 45, or 60 seconds. It applies only after a successful regular-question buzz. The server automatically marks an expired response incorrect, deducts the tile value once, excludes that respondent, and reopens the remaining buzzer time for others. When no eligible player remains, the answer is revealed. Daily Double and Final Jeopardy keep their existing rules. Settings persist with the session; existing sessions default to Off.
+- **Pause/resume:** Both the answer deadline and buzzer window pause during host pause/disconnection and restore remaining time on Continue. An expiry before host-loss detection resolves normally. Correct Last Judgment can reverse a timeout before another buzz; this hands the restored attempt back to the host for manual judgment, without restarting the deadline.
+- **Standings:** Rows move to their new ranks as scores change, with highlighted score updates and question score deltas. The reveal screen animates from the pre-question order; the live sidebar animates from the last displayed positions. With reduced motion enabled, rankings update immediately.
+
+These additions use existing session JSON and CAS persistence; **no new Supabase migration is required**.

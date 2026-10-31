@@ -67,6 +67,16 @@ export const commandSchema = z.discriminatedUnion('type', [
       .refine((s) => !/[\p{C}]/u.test(s), 'Use a printable name.'),
   }),
   action('start', {}),
+  action('practiceStart', {}),
+  action('practiceStop', {}),
+  action('configure', {
+    answerLimitSeconds: z
+      .number()
+      .int()
+      .min(0)
+      .max(60)
+      .refine((n) => n === 0 || n >= 5, 'Choose Off or a whole number from 5 to 60 seconds.'),
+  }),
   action('continue', {}),
   action('pause', {}),
   action('end', {}),

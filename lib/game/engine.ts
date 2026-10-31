@@ -3,9 +3,13 @@ import { playable } from './schema';
 import type { Context, Phase, Session, SessionView } from './types';
 export const HOST_GRACE = 15000;
 export const QUESTION_MS = 30000;
+export const PRACTICE_PHASES: Phase[] = ['practiceReady', 'practiceOpen', 'practiceAnswer'];
 const HOST_ACTIONS = new Set([
   'claim',
   'start',
+  'practiceStart',
+  'practiceStop',
+  'configure',
   'continue',
   'pause',
   'end',
@@ -58,6 +62,7 @@ export function createSession(
     version: 0,
     actionVersion: 0,
     phase: 'lobby',
+    answerLimitSeconds: 0,
     paused: false,
     locked: false,
     createdAt: now,
@@ -76,13 +81,20 @@ export function createSession(
 function closeQuestion(s: Session) {
   if (s.questionId && !s.used.includes(s.questionId)) s.used.push(s.questionId);
   s.phase = 'reveal';
+  s.answerDeadline = undefined;
+  s.answerRemaining = undefined;
   s.deadline = undefined;
   s.remaining = 0;
   s.windowId = undefined;
 }
 function expire(s: Session) {
   if (s.phase === 'question') closeQuestion(s);
-  else if (s.phase === 'finalAnswer') {
+  else if (s.phase === 'practiceOpen') {
+    s.phase = 'practiceReady';
+    s.deadline = undefined;
+    s.remaining = 0;
+    s.windowId = undefined;
+  } else if (s.phase === 'finalAnswer') {
     s.phase = 'finalReview';
     s.deadline = undefined;
     s.remaining = 0;
@@ -93,12 +105,57 @@ export function reconcile(s: Session, now: number) {
   if (s.phase === 'ended' || s.phase === 'finished' || s.paused) return;
   const lostAt = s.hostSeen + HOST_GRACE;
   const effectiveNow = Math.min(now, lostAt);
+  if (
+    s.answerDeadline !== undefined &&
+    s.answerDeadline <= effectiveNow &&
+    s.phase === 'answering'
+  ) {
+    const at = s.answerDeadline;
+    const playerId = s.respondent!;
+    const actionId = `timeout:${s.windowId}`;
+    judgeRegular(
+      s,
+      false,
+      { userId: s.hostId, now: at, actionId, expectedVersion: s.actionVersion },
+      true,
+    );
+    s.lastTimeout = { playerId, at };
+    s.processed.push(actionId);
+    s.history.push({ actionId, type: 'answerTimeout', userId: s.hostId, at, phase: s.phase });
+  }
   if (s.deadline !== undefined && s.deadline <= effectiveNow) expire(s);
   if (now >= lostAt) {
-    s.remaining = s.deadline !== undefined ? Math.max(0, s.deadline - lostAt) : s.remaining;
-    s.deadline = undefined;
+    freezeClocks(s, lostAt);
     s.paused = true;
     s.pauseReason = 'Host disconnected';
+  }
+}
+function freezeClocks(s: Session, at: number) {
+  if (s.deadline !== undefined) s.remaining = Math.max(0, s.deadline - at);
+  if (s.answerDeadline !== undefined) s.answerRemaining = Math.max(0, s.answerDeadline - at);
+  s.deadline = undefined;
+  s.answerDeadline = undefined;
+}
+function judgeRegular(s: Session, correct: boolean, ctx: Context, timedOut = false) {
+  requireThat(s.respondent, 'No player is answering.');
+  rememberJudgment(s);
+  const respondent = s.respondent;
+  const q = s.board.questions.find((q) => q.id === s.questionId)!;
+  score(
+    s,
+    respondent,
+    correct ? q.value : -q.value,
+    timedOut ? 'Answer time expired' : correct ? 'Correct answer' : 'Incorrect answer',
+    ctx,
+  );
+  s.answerDeadline = undefined;
+  s.answerRemaining = undefined;
+  if (correct) closeQuestion(s);
+  else {
+    s.attempted.push(respondent);
+    if (activePlayers(s).every((p) => s.attempted.includes(p.id)) || s.remaining <= 0)
+      closeQuestion(s);
+    else openBuzz(s, ctx.now);
   }
 }
 function score(s: Session, id: string, delta: number, reason: string, ctx: Context) {
@@ -143,17 +200,22 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
   const player = s.players.find((p) => p.id === ctx.userId && !p.removed);
   requireThat(host || player || cmd.type === 'join', 'You are not a member of this game.', 403);
   if (s.processed.includes(ctx.actionId)) return s;
+  const dashboardEnd = cmd.type === 'end' && ctx.dashboardEnd === true;
+  if (dashboardEnd) {
+    requireThat(host, 'Only the host can end this session.', 403);
+    if (['ended', 'finished'].includes(s.phase)) return s;
+  }
   reconcile(s, ctx.now);
   if (HOST_ACTIONS.has(cmd.type)) {
     requireThat(host, 'Only the host can do this.', 403);
-    if (cmd.type !== 'claim')
+    if (cmd.type !== 'claim' && !dashboardEnd)
       requireThat(
         ctx.controller && ctx.controller === s.controller,
         'This tab is read-only. Resume or take control first.',
         409,
       );
   }
-  if (!UNVERSIONED.has(cmd.type))
+  if (!UNVERSIONED.has(cmd.type) && !dashboardEnd)
     requireThat(
       ctx.expectedVersion === original.actionVersion,
       'The game changed. Review the latest state and try again.',
@@ -170,8 +232,7 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       requireThat(ctx.pinVerified, 'Incorrect host PIN.', 403);
       requireThat(!['ended', 'finished'].includes(s.phase), 'This session has ended.');
       if (!s.paused) {
-        s.remaining = s.deadline !== undefined ? Math.max(0, s.deadline - ctx.now) : s.remaining;
-        s.deadline = undefined;
+        freezeClocks(s, ctx.now);
       }
       s.controller = cmd.controller;
       s.hostSeen = ctx.now;
@@ -194,12 +255,14 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       s.paused = false;
       s.pauseReason = undefined;
       s.hostSeen = ctx.now;
-      if (s.phase === 'question' || s.phase === 'finalAnswer') s.deadline = ctx.now + s.remaining;
+      if (['question', 'finalAnswer', 'practiceOpen'].includes(s.phase))
+        s.deadline = ctx.now + s.remaining;
+      if (s.phase === 'answering' && s.answerRemaining !== undefined)
+        s.answerDeadline = ctx.now + s.answerRemaining;
       break;
     case 'pause':
       if (!s.paused) {
-        s.remaining = s.deadline !== undefined ? Math.max(0, s.deadline - ctx.now) : s.remaining;
-        s.deadline = undefined;
+        freezeClocks(s, ctx.now);
         s.paused = true;
         s.pauseReason = 'Paused by host';
       }
@@ -207,6 +270,8 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
     case 'end':
       s.phase = 'ended';
       s.deadline = undefined;
+      s.answerDeadline = undefined;
+      s.answerRemaining = undefined;
       s.paused = false;
       s.locked = true;
       break;
@@ -218,7 +283,7 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
         prior.lastSeen = ctx.now;
         break;
       }
-      phase('lobby');
+      phase('lobby', ...PRACTICE_PHASES);
       requireThat(!s.locked, 'The lobby is locked.');
       requireThat(s.players.length < 50, 'This session is full.');
       requireThat(
@@ -238,16 +303,40 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       break;
     }
     case 'lockLobby':
-      phase('lobby');
+      phase('lobby', ...PRACTICE_PHASES);
       s.locked = cmd.locked;
       break;
     case 'remove': {
-      phase('lobby');
+      phase('lobby', ...PRACTICE_PHASES);
       const removed = s.players.find((p) => p.id === cmd.playerId);
       requireThat(removed, 'Player not found.');
       removed.removed = true;
       break;
     }
+    case 'configure':
+      phase('lobby');
+      s.answerLimitSeconds = cmd.answerLimitSeconds;
+      break;
+    case 'practiceStart':
+      phase('lobby', ...PRACTICE_PHASES);
+      requireThat(activePlayers(s).length > 0, 'At least one player must join.');
+      s.phase = 'practiceOpen';
+      s.remaining = QUESTION_MS;
+      s.deadline = ctx.now + QUESTION_MS;
+      s.windowId = crypto.randomUUID();
+      s.respondent = undefined;
+      s.attempted = [];
+      s.undo = undefined;
+      break;
+    case 'practiceStop':
+      phase(...PRACTICE_PHASES);
+      s.phase = 'lobby';
+      s.deadline = undefined;
+      s.windowId = undefined;
+      s.respondent = undefined;
+      s.attempted = [];
+      s.remaining = QUESTION_MS;
+      break;
     case 'start':
       phase('lobby');
       requireThat(activePlayers(s).length > 0, 'At least one player must join.');
@@ -265,6 +354,9 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       s.daily = undefined;
       s.undo = undefined;
       s.remaining = QUESTION_MS;
+      s.lastTimeout = undefined;
+      s.answerDeadline = undefined;
+      s.answerRemaining = undefined;
       if (q.dailyDouble) {
         s.phase = 'dailyWager';
         s.deadline = undefined;
@@ -273,7 +365,7 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       break;
     }
     case 'buzz':
-      phase('question');
+      phase('question', 'practiceOpen');
       requireThat(player, 'Player not found.', 403);
       requireThat(cmd.windowId === s.windowId, 'That buzzer window has closed.', 409);
       requireThat(!s.attempted.includes(player.id), 'You already answered this question.');
@@ -281,27 +373,19 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       s.remaining = s.deadline - ctx.now;
       s.deadline = undefined;
       s.respondent = player.id;
-      s.phase = 'answering';
+      if (s.phase === 'practiceOpen') {
+        s.phase = 'practiceAnswer';
+      } else {
+        s.phase = 'answering';
+        if ((s.answerLimitSeconds ?? 0) > 0) {
+          s.answerRemaining = s.answerLimitSeconds! * 1000;
+          s.answerDeadline = ctx.now + s.answerRemaining;
+        }
+      }
       break;
     case 'judge': {
       phase('answering');
-      requireThat(s.respondent, 'No player is answering.');
-      rememberJudgment(s);
-      const q = s.board.questions.find((q) => q.id === s.questionId)!;
-      score(
-        s,
-        s.respondent,
-        cmd.correct ? q.value : -q.value,
-        cmd.correct ? 'Correct answer' : 'Incorrect answer',
-        ctx,
-      );
-      if (cmd.correct) closeQuestion(s);
-      else {
-        s.attempted.push(s.respondent);
-        if (activePlayers(s).every((p) => s.attempted.includes(p.id)) || s.remaining <= 0)
-          closeQuestion(s);
-        else openBuzz(s, ctx.now);
-      }
+      judgeRegular(s, cmd.correct, ctx);
       break;
     }
     case 'reveal':
@@ -311,6 +395,7 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       break;
     case 'next':
       phase('reveal');
+      s.lastTimeout = undefined;
       s.undo = undefined;
       s.questionId = undefined;
       s.respondent = undefined;
@@ -400,7 +485,10 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       s.daily = u.daily;
       s.windowId = u.windowId;
       s.deadline = undefined;
+      s.answerDeadline = undefined;
+      s.answerRemaining = undefined;
       s.undo = undefined;
+      s.lastTimeout = undefined;
       break;
     }
   }
@@ -497,6 +585,10 @@ export function viewSession(
     remaining: s.remaining,
     questionOpenedAt: s.questionOpenedAt,
     deadline: s.deadline,
+    answerLimitSeconds: s.answerLimitSeconds ?? 0,
+    answerDeadline: s.answerDeadline,
+    answerRemaining: s.answerRemaining,
+    lastTimeout: s.lastTimeout,
     windowId: s.windowId,
     respondent: s.respondent,
     attempted: s.attempted,

@@ -134,6 +134,18 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
   }, []);
   const remaining =
     state?.deadline !== undefined ? Math.max(0, state.deadline - now) : (state?.remaining ?? 0);
+  const answerRemaining =
+    state?.answerDeadline !== undefined
+      ? Math.max(0, state.answerDeadline - now)
+      : state?.answerRemaining;
+  useEffect(() => {
+    if (
+      state?.answerDeadline !== undefined &&
+      answerRemaining !== undefined &&
+      answerRemaining <= 0
+    )
+      void refresh();
+  }, [answerRemaining !== undefined && answerRemaining <= 0, state?.answerDeadline, refresh]);
   useEffect(() => {
     if (state?.deadline !== undefined && remaining <= 0) void refresh();
   }, [remaining <= 0, state?.deadline, refresh]);
@@ -148,6 +160,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
     send,
     refresh,
     remaining,
+    answerRemaining,
     now,
   };
 }
