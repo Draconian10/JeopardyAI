@@ -1328,3 +1328,81 @@ for (const role of ['audience', 'player'] as const) {
       ).toHaveCount(0);
   });
 }
+
+test('audience displays the current Final response and wager before judging, then advances privately', async ({
+  page,
+}) => {
+  const s = fixture();
+  s.phase = 'finalReview';
+  s.deadline = undefined;
+  s.players.push({ id: TIED_OTHER, name: 'Sam', score: 200, lastSeen: Date.now(), removed: false });
+  s.final = {
+    [PLAYER]: { score: 100, wager: 25, text: 'Jon wrote this response', submittedAt: Date.now() },
+    [TIED_OTHER]: { score: 200, wager: 50, text: 'Next private response' },
+  };
+  const current = await mock(page, s);
+  await page.goto(`/display/${s.id}`);
+  await expect(page.getByRole('heading', { name: 'Alex’s moment.', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Jon wrote this response', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText('Wager: $25', { exact: true })).toBeVisible();
+  await expect(page.getByText('Next private response', { exact: true })).toHaveCount(0);
+  await expect(page.locator('.host-answer')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Correct', exact: true })).toHaveCount(0);
+  const now = current();
+  Object.assign(
+    now,
+    applyCommand(
+      now,
+      { type: 'finalJudge', playerId: PLAYER, correct: false },
+      {
+        userId: HOST,
+        controller: CONTROL,
+        now: Date.now(),
+        expectedVersion: now.actionVersion,
+        actionId: crypto.randomUUID(),
+      },
+    ),
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByRole('heading', { name: 'Sam’s moment.', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Next private response', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText(s.board.final.answer, { exact: true })).toHaveCount(0);
+});
+
+test('mobile session controls use aligned rows without overlap at common phone widths', async ({
+  page,
+}) => {
+  const s = fixture();
+  await mock(page, s, PLAYER);
+  await mockWakeLock(page);
+  await page.goto(`/play/${s.id}`);
+  for (const width of [320, 375, 390, 430]) {
+    await page.setViewportSize({ width, height: 844 });
+    const positions = await page.locator('.session-topline').evaluate((el) => {
+      const home = el.querySelector('.back-link')!.getBoundingClientRect();
+      const controls = el.querySelector('.session-connection-controls')!.getBoundingClientRect();
+      const awake = el.querySelector('.awake-control')!.getBoundingClientRect();
+      return {
+        homeMid: home.y + home.height / 2,
+        controlsMid: controls.y + controls.height / 2,
+        controlsBottom: controls.bottom,
+        awakeTop: awake.top,
+        awakeRight: awake.right,
+        scroll: document.documentElement.scrollWidth,
+        viewport: innerWidth,
+      };
+    });
+    expect(Math.abs(positions.homeMid - positions.controlsMid)).toBeLessThan(3);
+    expect(positions.awakeTop).toBeGreaterThanOrEqual(positions.controlsBottom);
+    expect(positions.awakeRight).toBeLessThanOrEqual(width);
+    expect(positions.scroll).toBeLessThanOrEqual(positions.viewport);
+  }
+  await page.getByRole('button', { name: 'Keep screen awake', exact: true }).click();
+  await expect(page.locator('.awake-status')).toHaveText('Active');
+  await page.getByRole('button', { name: 'Enable sound', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Mute sound', exact: true })).toBeVisible();
+});

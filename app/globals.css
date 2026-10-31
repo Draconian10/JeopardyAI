@@ -2697,21 +2697,75 @@ input[type='checkbox'] {
 .final-submissions li span {
   color: #62546f;
 }
+/* Keep navigation/status on one row and give the wake control its own mobile row. */
+.session-topline {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+.session-topline > .awake-control,
+.session-topline > .awake-status {
+  grid-column: 2;
+  justify-self: end;
+  min-width: 0;
+}
+.session-topline > .session-connection-controls {
+  grid-column: 3;
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  max-width: none;
+}
 @media (max-width: 600px) {
   .session-topline {
-    align-items: flex-start;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 12px;
   }
-  .session-topline > .button-row {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 10px;
-    max-width: calc(100% - 72px);
+  .session-topline > .back-link {
+    grid-column: 1;
+    grid-row: 1;
   }
-  .session-topline .awake-control,
-  .session-topline > .button-row > .awake-status {
+  .session-topline > .session-connection-controls {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+  }
+  .session-topline > .awake-control,
+  .session-topline > .awake-status {
     grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: stretch;
+    max-width: none;
   }
   .session-topline .awake-control {
-    max-width: 100%;
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
   }
+  .session-topline .awake-control .button {
+    min-height: 44px;
+    flex-shrink: 0;
+  }
+  .session-topline .awake-status {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .session-connection-controls .icon-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+.session-connection-controls .connection {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.audience-container .answer-reveal h3 {
+  font-size: clamp(32px, 3vw, 56px);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.audience-container .question-stage .answer-reveal p {
+  font-size: clamp(20px, 1.6vw, 30px);
 }

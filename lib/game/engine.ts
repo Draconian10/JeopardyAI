@@ -642,8 +642,10 @@ export function viewSession(
   const currentReview = s.phase === 'finalReview' ? finalReviewPlayer(s) : undefined;
   const entries: SessionView['finalEntries'] = {};
   for (const [id, entry] of Object.entries(s.final)) {
-    const visible = privateHost || id === me?.id || entry.judged || finalDone;
+    const visible =
+      privateHost || id === me?.id || entry.judged || finalDone || id === currentReview;
     entries[id] = visible ? { ...entry } : { score: entry.score, judged: entry.judged };
+    if (!privateHost && id !== me?.id) entries[id].submittedAt = undefined;
     // Submission status without exposing the private wager or answer.
     if (!visible) {
       entries[id].wager = entry.wager === undefined ? undefined : 0;

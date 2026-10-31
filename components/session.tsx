@@ -278,8 +278,8 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
           <ArrowLeft size={15} />
           {host ? 'Your games' : 'Home'}
         </Link>
-        <div className="button-row">
-          {!audience && !ended && <KeepAwake key={id} />}
+        {!audience && !ended && <KeepAwake key={id} />}
+        <div className="button-row session-connection-controls">
           <span className={`connection ${connected ? '' : 'offline'}`}>
             {connected ? <Wifi size={13} /> : <WifiOff size={13} />}{' '}
             {connected ? 'Connected' : 'Reconnecting'}
@@ -906,20 +906,24 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                 {current ? (
                   <>
                     <h2>{current.name}’s moment.</h2>
-                    {host ? (
+                    {host || audience ? (
                       <>
                         <div className="answer-reveal">
                           <small>SUBMITTED ANSWER</small>
                           <h3>
                             {s.finalEntries[current.id]?.text?.trim() ||
-                              finalSubmissionStatus(s.finalEntries[current.id])}
+                              (host
+                                ? finalSubmissionStatus(s.finalEntries[current.id])
+                                : '(No answer submitted)')}
                           </h3>
                           <p>Wager: {money(s.finalEntries[current.id]?.wager ?? 0)}</p>
                         </div>
-                        <details className="host-answer">
-                          <summary>Correct answer</summary>
-                          <p>{s.finalAnswer}</p>
-                        </details>
+                        {host && (
+                          <details className="host-answer">
+                            <summary>Correct answer</summary>
+                            <p>{s.finalAnswer}</p>
+                          </details>
+                        )}
                         {control && (
                           <div className="button-row centered">
                             <button

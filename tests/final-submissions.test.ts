@@ -76,3 +76,49 @@ describe('Final submission status and privacy', () => {
     ).toThrow('blank answer');
   });
 });
+
+describe('Final review public reveal', () => {
+  it('reveals only the current review answer and wager, without exposing the solution or timestamps', () => {
+    const s = fixture();
+    s.phase = 'finalReview';
+    s.deadline = undefined;
+    s.final[A] = { score: 100, wager: 25, text: 'Jon submitted this', submittedAt: NOW };
+    s.final[B] = { score: 200, wager: 50, text: 'Future private response', submittedAt: NOW };
+    const audience = viewSession(s, HOST, NOW, CTRL, true);
+    expect(audience.finalReviewPlayer).toBe(A);
+    expect(audience.finalEntries[A]).toMatchObject({ text: 'Jon submitted this', wager: 25 });
+    expect(audience.finalEntries[A].submittedAt).toBeUndefined();
+    expect(audience.finalEntries[B].text).toBeUndefined();
+    expect(viewSession(s, A, NOW).finalEntries[B].text).toBeUndefined();
+    expect(audience.finalAnswer).toBeUndefined();
+    s.phase = 'finalAnswer';
+    s.deadline = NOW + 30000;
+    expect(viewSession(s, HOST, NOW, CTRL, true).finalEntries[A].text).toBeUndefined();
+  });
+  it('advances the public answer after judging and retains earlier reviewed responses', () => {
+    let s = fixture();
+    s.phase = 'finalReview';
+    s.deadline = undefined;
+    s.final[A] = { score: 100, wager: 25, text: 'First response' };
+    s.final[B] = { score: 200, wager: 50, text: 'Second response' };
+    s = applyCommand(
+      s,
+      { type: 'finalJudge', playerId: A, correct: false },
+      {
+        userId: HOST,
+        controller: CTRL,
+        now: NOW,
+        actionId: crypto.randomUUID(),
+        expectedVersion: s.actionVersion,
+      },
+    );
+    const audience = viewSession(s, HOST, NOW, CTRL, true);
+    expect(audience.finalReviewPlayer).toBe(B);
+    expect(audience.finalEntries[B].text).toBe('Second response');
+    expect(audience.finalEntries[A]).toMatchObject({
+      text: 'First response',
+      judged: true,
+      correct: false,
+    });
+  });
+});
