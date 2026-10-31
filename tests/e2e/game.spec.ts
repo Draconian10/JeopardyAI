@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { resultsCsv } from '../../lib/game/results-csv';
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { applyCommand, createSession, viewSession, reconcile } from '../../lib/game/engine';
 import { starterBoard } from '../../lib/game/starter';
@@ -92,6 +94,20 @@ async function mock(page: Page, initial: Session, userId = HOST) {
           ],
         },
       });
+    if (url.pathname === `/api/games/${s.gameId}/start`) {
+      const body = request.postDataJSON();
+      if (body.pin !== '123456')
+        return route.fulfill({ status: 403, json: { error: 'Incorrect host PIN.' } });
+      const next = createSession(s.board, s.gameId, HOST, '001234', Date.now(), body.controller);
+      next.id = body.requestId;
+      s = next;
+      return route.fulfill({ status: 201, json: { id: s.id } });
+    }
+    if (url.pathname === `/api/sessions/${s.id}/results`) {
+      if (userId !== HOST || !['finished', 'ended'].includes(s.phase))
+        return route.fulfill({ status: 403, json: { error: 'Not allowed.' } });
+      return route.fulfill({ contentType: 'text/csv; charset=utf-8', body: resultsCsv(s) });
+    }
     if (url.pathname === `/api/games/${s.gameId}` && request.method() === 'GET')
       return route.fulfill({ json: { id: s.gameId, board: s.board, version: 0 } });
     if (url.pathname === `/api/games/${s.gameId}` && request.method() === 'PUT')
@@ -617,4 +633,88 @@ test('ending a session early does not trigger winner confetti', async ({ page })
   await expect(page.getByRole('heading', { name: 'Thanks for playing.' })).toBeVisible();
   await settleFrames(page);
   await expect(page.getByTestId('results-confetti')).toHaveCount(0);
+});
+
+test('fresh launch opens a controlled unpaused lobby after one PIN and reload still requires resume', async ({
+  page,
+}) => {
+  const s = fixture();
+  s.phase = 'finished';
+  const current = await mock(page, s);
+  await page.goto('/host');
+  await page.getByRole('button', { name: 'Start game', exact: true }).click();
+  await page.getByLabel('Host PIN').fill('123456');
+  await page.getByRole('button', { name: 'Open lobby', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Start Jeopardy', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Host PIN')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Continue game', exact: false })).toHaveCount(0);
+  expect(current().paused).toBe(false);
+  expect(current().players).toHaveLength(0);
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Resume / take control' })).toBeVisible();
+  await page.getByLabel('Host PIN').fill('123456');
+  await page.getByRole('button', { name: 'Resume / take control' }).click();
+  await expect(
+    page.getByRole('button', { name: 'Continue game', exact: false }).first(),
+  ).toBeVisible();
+  expect(current().paused).toBe(true);
+});
+
+for (const phase of ['finished', 'ended'] as const) {
+  test(`host downloads ${phase} results with standings and question scores`, async ({ page }) => {
+    const s = finalFixture();
+    s.phase = phase;
+    const q = s.board.questions[0];
+    s.used = [q.id];
+    s.events = [
+      {
+        id: crypto.randomUUID(),
+        questionId: q.id,
+        playerId: PLAYER,
+        delta: 200,
+        reason: 'Correct',
+        at: Date.now(),
+      },
+    ];
+    await mock(page, s);
+    await page.goto(`/host/session/${s.id}`);
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Download results (CSV)', exact: true }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe(`jeopardy-results-${s.id}.csv`);
+    const csv = await readFile((await download.path())!, 'utf8');
+    expect(csv).toContain('"Final standing"');
+    expect(csv).toContain('"Question summary"');
+    expect(csv).toContain('"Score event"');
+    expect(csv).toContain('"2400"');
+    expect(csv).toContain(q.prompt.replace(/"/g, '""'));
+    await expect(
+      page.getByRole('button', { name: 'Download results (CSV)', exact: true }),
+    ).toBeEnabled();
+  });
+}
+
+test('failed results download shows a retryable error without leaving the results', async ({
+  page,
+}) => {
+  const s = finalFixture();
+  await mock(page, s);
+  await page.route(`**/api/sessions/${s.id}/results`, (route) =>
+    route.fulfill({ status: 503, json: { error: 'Could not load results. Please retry.' } }),
+  );
+  await page.goto(`/host/session/${s.id}`);
+  await page.getByRole('button', { name: 'Download results (CSV)' }).click();
+  await expect(
+    page.getByRole('alert').filter({ hasText: 'Could not load results. Please retry.' }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Download results (CSV)' })).toBeEnabled();
+  await expect(page.getByRole('heading', { name: 'Alex wins!', exact: true })).toBeVisible();
+});
+
+test('player results do not offer the host-only CSV download', async ({ page }) => {
+  const s = finalFixture();
+  await mock(page, s, PLAYER);
+  await page.goto(`/play/${s.id}`);
+  await expect(page.getByRole('heading', { name: 'Alex wins!', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Download results (CSV)' })).toHaveCount(0);
 });

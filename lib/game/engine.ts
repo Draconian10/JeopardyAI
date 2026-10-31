@@ -50,6 +50,7 @@ export function createSession(
   hostId: string,
   joinCode: string,
   now: number,
+  controller?: string,
 ): Session {
   playable(board);
   return {
@@ -68,6 +69,7 @@ export function createSession(
     createdAt: now,
     updatedAt: now,
     hostSeen: now,
+    controller,
     players: [],
     used: [],
     remaining: QUESTION_MS,

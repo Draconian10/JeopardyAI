@@ -27,6 +27,7 @@ import { HostAuth, SetupNotice } from './auth';
 import { configured, money } from '@/lib/client';
 import { useSession } from './use-session';
 import Standings from './standings';
+import DownloadResults from './download-results';
 import ResultsConfetti from './results-confetti';
 import PracticeRound from './practice-round';
 import { PRACTICE_PHASES } from '@/lib/game/engine';
@@ -243,9 +244,12 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
         </div>
       )}
       <Standings s={s} />
-      <Link className="button primary" href={host ? '/host' : '/'}>
-        Back to {host ? 'your games' : 'home'} <ArrowRight size={16} />
-      </Link>
+      <div className="results-actions">
+        {host && <DownloadResults id={s.id} />}
+        <Link className="button primary" href={host ? '/host' : '/'}>
+          Back to {host ? 'your games' : 'home'} <ArrowRight size={16} />
+        </Link>
+      </div>
     </div>
   );
   return (

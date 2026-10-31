@@ -14,6 +14,7 @@ import {
   Trophy,
 } from 'lucide-react';
 import { api } from '@/lib/client';
+import { handoffController } from '@/lib/launch-controller';
 import { HostAuth } from './auth';
 import type { Board } from '@/lib/game/schema';
 interface DashboardData {
@@ -39,6 +40,7 @@ function DashboardInner() {
   const [separate, setSeparate] = useState(false);
   const [busy, setBusy] = useState(false);
   const [requestId, setRequestId] = useState('');
+  const [launchController] = useState(() => crypto.randomUUID());
   const [ending, setEnding] = useState<string>();
   const router = useRouter();
   const refresh = useCallback(() => {
@@ -280,7 +282,9 @@ function DashboardInner() {
                     pin,
                     separate,
                     requestId,
+                    controller: launchController,
                   });
+                  handoffController(result.id, launchController);
                   router.push(`/host/session/${result.id}`);
                 } catch (e) {
                   setError((e as Error).message);

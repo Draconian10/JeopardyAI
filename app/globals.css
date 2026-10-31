@@ -2416,3 +2416,11 @@ input[type='checkbox'] {
     display: none;
   }
 }
+
+.results-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: start;
+  gap: 12px;
+}

@@ -56,7 +56,7 @@ Realtime notifications trigger authorized snapshot fetches. A three-second polli
 
 ## Controller ownership
 
-Each mounted host console gets a fresh controller UUID. Claim requires host account ownership plus the session's hashed six-digit PIN. Claim pauses the session, changes the controller UUID, and refreshes host liveness. The host must select Continue. Old controllers cannot heartbeat or issue host commands. Audience windows never claim control or keep the host alive.
+Each reopened host console gets a fresh controller UUID; a newly launched console consumes its one-use controller handoff instead. Claim requires host account ownership plus the session's hashed six-digit PIN. Claim pauses the session, changes the controller UUID, and refreshes host liveness. The host must select Continue. Old controllers cannot heartbeat or issue host commands. Audience windows never claim control or keep the host alive.
 
 ## Rate limiting and limits
 
@@ -85,3 +85,9 @@ Standings use a shared ranking calculation and keyed DOM rows. A layout effect a
 `useSession` tracks synchronization errors separately from action/validation errors. A successful authorized snapshot clears synchronization errors and restores the connection indicator without erasing gameplay errors. A monotonically increasing request sequence orders connection outcomes across refresh and command requests, so delayed failures from older requests cannot undo a newer recovery. Focus/online/visible-page listeners work independently of the Realtime subscription, including for read-only hosts.
 
 Final confetti is a client-only canvas overlay with bounded particle count, capped device-pixel ratio, a short animation lifetime, and cleanup of animation frames/listeners on completion or unmount. Session storage prevents repeated bursts on result refresh; reduced-motion preferences suppress it, including when enabled during the animation. The effect is decorative, silent, hidden from assistive technology, and pointer-transparent.
+
+## Launch control handoff and results exports
+
+The launch request carries a validated controller UUID alongside its existing idempotent request ID. After PIN verification, `createSession` includes that controller in the state passed to the atomic `launch_session` transaction. Retries return the existing session ID without changing control or pausing the session. The client hands the UUID to the destination console once using session storage (with an in-memory navigation fallback), consumes/removes it on mount, and waits for controller initialization before fetching host state. Reloads create a fresh UUID and retain the claim/PIN/Continue protection; Strict Mode effect replay retains the same initialized controller. The host PIN is never stored in this handoff.
+
+`GET /api/sessions/:id/results` requires a permanent authenticated host, exact stored host ownership, and a finished/ended phase. It returns a private, noncached CSV attachment built from persisted players, played questions and the surviving score event ledger. Undo removes superseded score events, so exports follow corrected scores rather than replaying the action audit. Questions with no score events still get zero-change summaries; removed players are included without a rank. Event order and cumulative scores are preserved; text cells are quoted and formula-like strings neutralized while numeric negative scores remain numeric. The export does not serialize private state, PIN hashes, answers or unrevealed board questions, and needs no controller claim or database migration.

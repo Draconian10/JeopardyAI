@@ -2,12 +2,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, ApiError, configured, supabase } from '@/lib/client';
 import type { SessionView } from '@/lib/game/types';
+import { takeLaunchController } from '@/lib/launch-controller';
 import type { Command } from '@/lib/game/schema';
 export function useSession(id: string, role: 'host' | 'player' | 'audience') {
   const [state, setState] = useState<SessionView>();
   const stateRef = useRef<SessionView | undefined>(undefined);
   const [userId, setUserId] = useState('');
   const [controller, setController] = useState('');
+  const initialController = useRef<{ id: string; value: string } | undefined>(undefined);
   const [error, setError] = useState('');
   const [syncError, setSyncError] = useState('');
   const requestSequence = useRef(0);
@@ -50,10 +52,14 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
     }
   }, [id, role, controller, accept, failSync]);
   useEffect(() => {
-    if (role === 'host') setController(crypto.randomUUID());
-  }, [role]);
+    if (role !== 'host') return;
+    if (initialController.current?.id !== id) {
+      initialController.current = { id, value: takeLaunchController(id) ?? crypto.randomUUID() };
+    }
+    setController(initialController.current.value);
+  }, [role, id]);
   useEffect(() => {
-    if (!configured()) return;
+    if (!configured() || (role === 'host' && !controller)) return;
     let dead = false;
     const client = supabase();
     client.auth.getUser().then(({ data, error }) => {
@@ -68,7 +74,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
     return () => {
       dead = true;
     };
-  }, [refresh]);
+  }, [refresh, role, controller]);
   useEffect(() => {
     if (!userId || !stateRef.current || (role === 'host' && !stateRef.current.controllerOwned))
       return;

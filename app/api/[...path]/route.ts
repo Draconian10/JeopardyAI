@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomInt } from 'node:crypto';
 import { playerSessionSummary } from '@/lib/game/player-sessions';
+import { resultsCsv } from '@/lib/game/results-csv';
 import type { Session } from '@/lib/game/types';
 import { parseQuestionJson, MAX_QUESTION_JSON_LENGTH } from '@/lib/game/question-json';
 import { z } from 'zod';
@@ -192,7 +193,12 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
         if (game.archived) throw new GameError('Restore this board before starting it.');
         await limit(req, user.id, 'pin', 10, 60);
         const body = z
-          .object({ pin: pinSchema, separate: z.boolean().default(false), requestId: uuid })
+          .object({
+            pin: pinSchema,
+            separate: z.boolean().default(false),
+            requestId: uuid,
+            controller: uuid.optional(),
+          })
           .strict()
           .parse(await json(req));
         if (!verifyPin(body.pin, game.pin_hash)) throw new GameError('Incorrect host PIN.', 403);
@@ -226,6 +232,7 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
             user.id,
             String(randomInt(0, 1000000)).padStart(6, '0'),
             Date.now(),
+            body.controller,
           );
           s.id = body.requestId;
           const { error } = await database.rpc('launch_session', {
@@ -282,6 +289,22 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
       uuid.parse(id);
       const controller = req.headers.get('x-controller') ?? undefined;
       if (controller) uuid.parse(controller);
+      if (req.method === 'GET' && op === 'results') {
+        hostOnly(user);
+        const { state } = await readSession(id);
+        if (state.hostId !== user.id)
+          throw new GameError('Only the session owner can download results.', 403);
+        if (!['finished', 'ended'].includes(state.phase))
+          throw new GameError('Finish or end the session before downloading results.', 409);
+        return new Response(resultsCsv(state), {
+          headers: {
+            'Content-Type': 'text/csv; charset=utf-8',
+            'Content-Disposition': `attachment; filename="jeopardy-results-${id}.csv"`,
+            'Cache-Control': 'private, no-store',
+            'X-Content-Type-Options': 'nosniff',
+          },
+        });
+      }
       if (req.method === 'GET' && !op) {
         const { state } = await loadSession(id, user.id);
         return NextResponse.json(
