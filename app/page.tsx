@@ -12,11 +12,7 @@ export default function Home() {
         <br />
         <span>A room full of contenders.</span>
       </h1>
-      <p className="home-subtitle">
-        Your categories. Your people. One very competitive buzzer.
-        <br />
-        Bring everyone together for a game night worth talking about.
-      </p>
+      <p className="home-subtitle">Create a custom board, host a game, or join with a game code.</p>
       <PlayerGames />
       <div className="entry-grid">
         <Link href="/host" className="entry-card host-card">
@@ -26,8 +22,7 @@ export default function Home() {
           <span className="tiny-label">YOU’RE RUNNING THE SHOW</span>
           <h2>Host a game</h2>
           <p>
-            Build your board, gather your players,
-            <br />
+            Build your board, gather your players, <br />
             and take the host’s seat.
           </p>
           <div className="entry-bottom">
@@ -42,8 +37,7 @@ export default function Home() {
           <span className="tiny-label">YOUR MOMENT TO SHINE</span>
           <h2>Join a game</h2>
           <p>
-            Got a game code? Grab your phone.
-            <br />
+            Got a game code? Grab your phone. <br />
             Your buzzer is waiting.
           </p>
           <div className="entry-bottom">
