@@ -41,56 +41,83 @@ export default function Tiebreaker({
         <>
           <h2>Tied for first. One correct response wins.</h2>
           {control ? (
-            <form
-              className="tie-form"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                const ok = await send({ type: 'tieClue', category, prompt, answer });
-                if (ok) {
-                  setCategory('');
-                  setPrompt('');
-                  setAnswer('');
-                }
-              }}
-            >
-              <p>
-                Enter a new clue privately, then open the buzzers. Players get 30 seconds to buzz.
-              </p>
-              <label>
-                Tiebreaker category
-                <input
-                  required
-                  maxLength={100}
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                />
-              </label>
-              <label>
-                Tiebreaker clue
-                <textarea
-                  required
-                  maxLength={3000}
-                  rows={3}
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                />
-              </label>
-              <label>
-                Tiebreaker answer
-                <input
-                  required
-                  maxLength={2000}
-                  value={answer}
-                  onChange={(e) => setAnswer(e.target.value)}
-                />
-              </label>
-              <button
-                className="button primary"
-                disabled={busy || s.paused || !category.trim() || !prompt.trim() || !answer.trim()}
-              >
-                Present clue & open buzzers
-              </button>
-            </form>
+            <>
+              {!!tie.savedCluesRemaining && (
+                <div className="saved-clue-launch">
+                  <p>
+                    {tie.savedCluesRemaining} saved clues remaining · Next category:{' '}
+                    <b>{tie.nextSavedCategory}</b>
+                  </p>
+                  <button
+                    type="button"
+                    className="button primary"
+                    disabled={busy || s.paused}
+                    onClick={() => void send({ type: 'tieSavedClue' })}
+                  >
+                    Present next saved clue
+                  </button>
+                </div>
+              )}
+              {!tie.savedCluesRemaining && <p>No saved clues remain. Enter a backup clue below.</p>}
+              <details open={!tie.savedCluesRemaining}>
+                <summary>
+                  {tie.savedCluesRemaining ? 'Use a custom clue instead' : 'Custom backup clue'}
+                </summary>
+                <form
+                  className="tie-form"
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    const ok = await send({ type: 'tieClue', category, prompt, answer });
+                    if (ok) {
+                      setCategory('');
+                      setPrompt('');
+                      setAnswer('');
+                    }
+                  }}
+                >
+                  <p>
+                    Enter a new clue privately, then open the buzzers. Players get 30 seconds to
+                    buzz.
+                  </p>
+                  <label>
+                    Tiebreaker category
+                    <input
+                      required
+                      maxLength={100}
+                      value={category}
+                      onChange={(e) => setCategory(e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Tiebreaker clue
+                    <textarea
+                      required
+                      maxLength={3000}
+                      rows={3}
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Tiebreaker answer
+                    <input
+                      required
+                      maxLength={2000}
+                      value={answer}
+                      onChange={(e) => setAnswer(e.target.value)}
+                    />
+                  </label>
+                  <button
+                    className="button primary"
+                    disabled={
+                      busy || s.paused || !category.trim() || !prompt.trim() || !answer.trim()
+                    }
+                  >
+                    Present clue & open buzzers
+                  </button>
+                </form>
+              </details>
+            </>
           ) : (
             <p role="status">
               {player && !eligible

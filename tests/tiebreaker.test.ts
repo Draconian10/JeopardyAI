@@ -51,6 +51,40 @@ function buzz(s: Session, id = A, now = NOW) {
   return act(s, { type: 'buzz', windowId: s.windowId! }, id, now);
 }
 describe('sudden death tiebreakers', () => {
+  it('consumes saved clues in order exactly once, preserves the queue across resume, and never leaks future clues', () => {
+    const board = fixture();
+    board.board.tiebreakers = [
+      { category: 'First category', prompt: 'First saved prompt', answer: 'Secret one' },
+      { category: 'Second category', prompt: 'Second saved prompt', answer: 'Secret two' },
+    ];
+    let s = act(board, { type: 'finish' });
+    const view = viewSession(s, HOST, NOW, CONTROL);
+    expect(view.tiebreaker?.savedCluesRemaining).toBe(2);
+    expect(view.tiebreaker?.nextSavedCategory).toBe('First category');
+    expect(JSON.stringify(viewSession(s, A, NOW))).not.toContain('Second category');
+    expect(JSON.stringify(viewSession(s, HOST, NOW, CONTROL, true))).not.toContain('Secret');
+    const actionId = crypto.randomUUID();
+    s = act(s, { type: 'tieSavedClue' }, HOST, NOW, { actionId });
+    s = act(s, { type: 'tieSavedClue' }, HOST, NOW, { actionId });
+    expect(s.tiebreaker?.rounds).toHaveLength(1);
+    expect(s.tiebreaker?.savedCluesUsed).toBe(1);
+    expect(JSON.stringify(viewSession(s, A, NOW))).not.toContain('Secret');
+    s = act(s, { type: 'tieReveal' });
+    s = act(s, { type: 'tieNext' });
+    s = JSON.parse(JSON.stringify(s));
+    s = act(s, { type: 'claim', pin: '123456', controller: CONTROL }, HOST, NOW, {
+      pinVerified: true,
+    });
+    s = act(s, { type: 'continue' });
+    s = act(s, { type: 'tieSavedClue' });
+    expect(s.tiebreaker?.rounds[1].prompt).toBe('Second saved prompt');
+    s = act(s, { type: 'tieReveal' });
+    s = act(s, { type: 'tieNext' });
+    expect(() => act(s, { type: 'tieSavedClue' })).toThrow('No complete saved clue remains');
+    expect(clue(s).phase).toBe('tieQuestion');
+    expect(() => act(s, { type: 'tieSavedClue' }, A)).toThrow('Only the host');
+  });
+
   it('starts only for tied active leaders after all Final judgments, including negative scores', () => {
     const s = fixture();
     s.players.forEach((p) => (p.score -= 2000));

@@ -13,11 +13,15 @@ export const questionSchema = z
     dailyDouble: z.boolean(),
   })
   .strict();
+export const tiebreakerClueSchema = z
+  .object({ category: text(100), prompt: text(3000), answer: text(2000) })
+  .strict();
 export const boardSchema = z
   .object({
     title: text(100).min(1, 'Give your game a title.'),
     categories: z.array(text(80)).min(1).max(8),
     rows: z.number().int().min(1).max(8),
+    tiebreakers: z.array(tiebreakerClueSchema).max(20).optional(),
     questions: z.array(questionSchema).min(1).max(64),
     final: z.object({ category: text(100), prompt: text(3000), answer: text(2000) }).strict(),
   })
@@ -53,6 +57,10 @@ export function playable(board: Board) {
     throw new Error('Complete every category, question, and answer before starting.');
   if (board.questions.filter((q) => q.dailyDouble).length !== 1)
     throw new Error('Select exactly one Daily Double.');
+  if (board.tiebreakers?.some((q) => !q.category || !q.prompt || !q.answer))
+    throw new Error(
+      'Complete every saved tiebreaker category, clue, and answer, or remove the incomplete clue.',
+    );
   if (!board.final.category || !board.final.prompt || !board.final.answer)
     throw new Error('Complete Final Jeopardy.');
 }
@@ -104,6 +112,7 @@ export const commandSchema = z.discriminatedUnion('type', [
   }),
   action('tieJudge', { correct: z.boolean() }),
   action('tieNext', {}),
+  action('tieSavedClue', {}),
   action('tieReveal', {}),
   action('undo', {}),
   action('tick', {}),

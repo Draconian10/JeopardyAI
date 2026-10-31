@@ -7,6 +7,7 @@ export const PRACTICE_PHASES: Phase[] = ['practiceReady', 'practiceOpen', 'pract
 export const TIE_PHASES: Phase[] = ['tieSetup', 'tieQuestion', 'tieAnswer', 'tieReveal'];
 const HOST_ACTIONS = new Set([
   'tieClue',
+  'tieSavedClue',
   'tieJudge',
   'tieNext',
   'tieReveal',
@@ -536,14 +537,22 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
         } else s.phase = 'finished';
       }
       break;
-    case 'tieClue':
+    case 'tieSavedClue':
+    case 'tieClue': {
       phase('tieSetup');
       requireThat(s.tiebreaker && !s.tiebreaker.winnerId, 'No tiebreaker is pending.');
+      const savedIndex = s.tiebreaker.savedCluesUsed ?? 0;
+      const clue = cmd.type === 'tieSavedClue' ? s.board.tiebreakers?.[savedIndex] : cmd;
+      requireThat(
+        clue && clue.category.trim() && clue.prompt.trim() && clue.answer.trim(),
+        'No complete saved clue remains. Add a custom clue.',
+      );
+      if (cmd.type === 'tieSavedClue') s.tiebreaker.savedCluesUsed = savedIndex + 1;
       s.tiebreaker.rounds.push({
         id: crypto.randomUUID(),
-        category: cmd.category,
-        prompt: cmd.prompt,
-        answer: cmd.answer,
+        category: clue.category,
+        prompt: clue.prompt,
+        answer: clue.answer,
         attempts: [],
       });
       s.attempted = [];
@@ -555,6 +564,7 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       s.windowId = crypto.randomUUID();
       s.phase = 'tieQuestion';
       break;
+    }
     case 'tieJudge':
       phase('tieAnswer');
       judgeTie(s, cmd.correct, ctx.now);
@@ -699,6 +709,13 @@ export function viewSession(
       ? {
           playerIds: s.tiebreaker.playerIds,
           winnerId: s.tiebreaker.winnerId,
+          savedCluesRemaining: privateHost
+            ? Math.max(0, (s.board.tiebreakers?.length ?? 0) - (s.tiebreaker.savedCluesUsed ?? 0))
+            : undefined,
+          nextSavedCategory:
+            privateHost && s.phase === 'tieSetup'
+              ? s.board.tiebreakers?.[s.tiebreaker.savedCluesUsed ?? 0]?.category
+              : undefined,
           roundNumber: s.tiebreaker.rounds.length + (s.phase === 'tieSetup' ? 1 : 0),
           round:
             s.tiebreaker.rounds.length && s.phase !== 'tieSetup'

@@ -18,5 +18,17 @@
     "category": "World Landmarks",
     "question": "Which Indian mausoleum was commissioned by Shah Jahan?",
     "answer": "The Taj Mahal"
-  }
+  },
+  "tiebreakers": [
+    {
+      "category": "World capitals",
+      "question": "Which city is the capital of Canada?",
+      "answer": "What is Ottawa?"
+    },
+    {
+      "category": "Science",
+      "question": "Which element has the chemical symbol He?",
+      "answer": "What is helium?"
+    }
+  ]
 }

@@ -279,7 +279,9 @@ test('JSON import validates before replacing the board and can save imported que
     (request) => request.url().includes(`/api/games/${s.gameId}`) && request.method() === 'PUT',
   );
   await page.getByRole('button', { name: 'Save game', exact: true }).click();
-  expect((await saved).postDataJSON().board.categories).toEqual(['Science', 'Geography']);
+  const imported = (await saved).postDataJSON().board;
+  expect(imported.categories).toEqual(['Science', 'Geography']);
+  expect(imported.tiebreakers).toHaveLength(2);
 });
 
 test('canceling a JSON import preserves the existing board', async ({ page }) => {
@@ -974,4 +976,92 @@ test('late validation failure from the old question cannot reappear on a new que
   });
   await expect(page.getByRole('button', { name: 'BUZZ!', exact: false })).toBeEnabled();
   await expect(page.locator('.session-container > p[role="alert"]')).toBeEmpty();
+});
+
+test('editor adds, reorders and saves tiebreaker clues as part of the board JSON', async ({
+  page,
+}) => {
+  const s = fixture();
+  await mock(page, s);
+  await page.goto(`/host/edit/${s.gameId}`);
+  const section = page.locator('.saved-tiebreakers');
+  await expect(section).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  for (const name of ['First', 'Second']) {
+    await section.getByRole('button', { name: 'Add tiebreaker clue', exact: true }).click();
+    const fieldset = section.locator('fieldset').last();
+    await fieldset.getByLabel('Category', { exact: true }).fill(name + ' category');
+    await fieldset.getByLabel('Clue', { exact: true }).fill(name + ' clue');
+    await fieldset.getByLabel('Correct answer', { exact: true }).fill(name + ' answer');
+  }
+  await section
+    .locator('fieldset')
+    .last()
+    .getByRole('button', { name: 'Move up', exact: true })
+    .click();
+  await expect(
+    section.locator('fieldset').first().getByRole('textbox', { name: 'Category', exact: true }),
+  ).toHaveValue('Second category');
+  const saved = page.waitForRequest(
+    (r) => r.url().includes(`/api/games/${s.gameId}`) && r.method() === 'PUT',
+  );
+  await page.getByRole('button', { name: 'Save game', exact: true }).click();
+  expect(
+    (await saved).postDataJSON().board.tiebreakers.map((q: { category: string }) => q.category),
+  ).toEqual(['Second category', 'First category']);
+  await page.getByRole('button', { name: 'Import JSON', exact: true }).click();
+  await page.getByRole('button', { name: 'Use current board JSON' }).click();
+  const json = JSON.parse(await page.getByLabel('Game JSON', { exact: true }).inputValue());
+  expect(json.tiebreakers[0]).toEqual({
+    category: 'Second category',
+    question: 'Second clue',
+    answer: 'Second answer',
+  });
+});
+
+test('host presents saved clues in order across a reload and gets manual fallback only when exhausted', async ({
+  page,
+}) => {
+  const initial = tiedFinal();
+  initial.board.tiebreakers = [
+    { category: 'Saved category one', prompt: 'Saved clue one', answer: 'Saved answer one' },
+    { category: 'Saved category two', prompt: 'Saved clue two', answer: 'Saved answer two' },
+  ];
+  const s = applyCommand(
+    initial,
+    { type: 'finish' },
+    {
+      userId: HOST,
+      controller: CONTROL,
+      now: Date.now(),
+      expectedVersion: 0,
+      actionId: crypto.randomUUID(),
+    },
+  );
+  const current = await mock(page, s);
+  await openControlledHost(page, s);
+  await expect(page.getByText('Saved category one', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Tiebreaker clue', { exact: true })).not.toBeVisible();
+  await page.getByRole('button', { name: 'Present next saved clue' }).click();
+  await expect(page.getByRole('heading', { name: 'Saved clue one', exact: true })).toBeVisible();
+  for (const id of [PLAYER, TIED_OTHER]) {
+    await simulateBuzz(page, current, id);
+    await page.getByRole('button', { name: 'Incorrect', exact: true }).click();
+  }
+  await page.getByRole('button', { name: 'Prepare another clue' }).click();
+  await page.reload();
+  await page.getByLabel('Host PIN').fill('123456');
+  await page.getByRole('button', { name: 'Resume / take control' }).click();
+  await page.getByRole('button', { name: 'Continue game', exact: false }).first().click();
+  await expect(page.getByText('Saved category two', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Present next saved clue' }).click();
+  await expect(page.getByRole('heading', { name: 'Saved clue two', exact: true })).toBeVisible();
+  expect(current().tiebreaker?.savedCluesUsed).toBe(2);
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Reveal without a winner' }).click();
+  await page.getByRole('button', { name: 'Prepare another clue' }).click();
+  await expect(page.getByRole('button', { name: 'Present next saved clue' })).toHaveCount(0);
+  await expect(page.getByLabel('Tiebreaker clue', { exact: true })).toBeVisible();
 });

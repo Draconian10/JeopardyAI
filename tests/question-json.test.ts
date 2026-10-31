@@ -10,6 +10,33 @@ import { starterBoard, blankBoard } from '@/lib/game/starter';
 import { playable } from '@/lib/game/schema';
 const example = () => JSON.parse(QUESTION_JSON_EXAMPLE);
 describe('category-based question JSON', () => {
+  it('round-trips ordered saved tiebreakers and still accepts older JSON without them', () => {
+    const v = example(),
+      b = questionJsonToBoard(v);
+    expect(b.tiebreakers).toHaveLength(2);
+    expect(b.tiebreakers?.[0].prompt).toBe(v.tiebreakers[0].question);
+    expect(boardToQuestionJson(b).tiebreakers).toEqual(v.tiebreakers);
+    delete v.tiebreakers;
+    expect(questionJsonToBoard(v).tiebreakers).toBeUndefined();
+    v.tiebreakers = [];
+    expect(boardToQuestionJson(questionJsonToBoard(v)).tiebreakers).toEqual([]);
+  });
+  it('rejects incomplete, oversized, dollar-valued and excessive saved clues', () => {
+    for (const clues of [
+      [{ category: 'C', question: 'Q', answer: '' }],
+      [{ category: 'C', question: 'Q', answer: 'A', value: 200 }],
+      Array.from({ length: 21 }, () => ({ category: 'C', question: 'Q', answer: 'A' })),
+      [{ category: 'C', question: 'x'.repeat(3001), answer: 'A' }],
+    ]) {
+      const v = example();
+      v.tiebreakers = clues;
+      expect(() => questionJsonToBoard(v)).toThrow();
+    }
+    const b = starterBoard();
+    b.tiebreakers = [{ category: 'C', prompt: '', answer: 'A' }];
+    expect(() => playable(b)).toThrow('Complete every saved tiebreaker');
+  });
+
   it('imports categories, row order, answers, Daily Double and Final with generated question IDs', () => {
     const b = parseQuestionJson(QUESTION_JSON_EXAMPLE);
     playable(b);

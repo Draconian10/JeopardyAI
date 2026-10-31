@@ -196,7 +196,8 @@ function EditorInner({ id }: { id: string }) {
             <p className="muted small">
               Include a title, categories with equally sized questions lists, and Final Jeopardy.
               Each question needs value, question, and answer. Mark exactly one dailyDouble as true.
-              Your host PIN is entered separately below.
+              Optionally include a tiebreakers list with category, question and answer for each
+              clue. Your host PIN is entered separately below.
             </p>
             <div className="button-row">
               <button
@@ -341,6 +342,7 @@ function EditorInner({ id }: { id: string }) {
                 );
                 next.rows = board.rows;
                 next.final = board.final;
+                next.tiebreakers = board.tiebreakers;
                 next.questions = next.categories.flatMap((_, category) =>
                   Array.from({ length: next.rows }, (_, row) => ({
                     id: crypto.randomUUID(),
@@ -593,6 +595,90 @@ function EditorInner({ id }: { id: string }) {
           )}
         </section>
       </div>
+      <section className="panel saved-tiebreakers">
+        <h2>Sudden-death tiebreakers</h2>
+        <p>
+          Optional backup clues, presented in this order if Final Jeopardy ends in a tie. No dollar
+          values. Save up to 20.
+        </p>
+        {(board.tiebreakers ?? []).map((clue, index) => (
+          <fieldset key={index}>
+            <legend>Tiebreaker {index + 1}</legend>
+            {(['category', 'prompt', 'answer'] as const).map((field) => (
+              <label key={field}>
+                {field === 'prompt' ? 'Clue' : field === 'answer' ? 'Correct answer' : 'Category'}
+                <textarea
+                  rows={field === 'prompt' ? 3 : 2}
+                  maxLength={field === 'category' ? 100 : field === 'prompt' ? 3000 : 2000}
+                  value={clue[field]}
+                  disabled={preview}
+                  onChange={(e) =>
+                    edit({
+                      ...board,
+                      tiebreakers: board.tiebreakers!.map((q, i) =>
+                        i === index ? { ...q, [field]: e.target.value } : q,
+                      ),
+                    })
+                  }
+                />
+              </label>
+            ))}
+            <div className="button-row">
+              <button
+                type="button"
+                className="button secondary"
+                disabled={preview || index === 0}
+                onClick={() => {
+                  const clues = [...board.tiebreakers!];
+                  [clues[index - 1], clues[index]] = [clues[index], clues[index - 1]];
+                  edit({ ...board, tiebreakers: clues });
+                }}
+              >
+                Move up
+              </button>
+              <button
+                type="button"
+                className="button secondary"
+                disabled={preview || index === board.tiebreakers!.length - 1}
+                onClick={() => {
+                  const clues = [...board.tiebreakers!];
+                  [clues[index + 1], clues[index]] = [clues[index], clues[index + 1]];
+                  edit({ ...board, tiebreakers: clues });
+                }}
+              >
+                Move down
+              </button>
+              <button
+                type="button"
+                className="button secondary"
+                disabled={preview}
+                onClick={() => {
+                  if (confirm('Remove this saved tiebreaker clue?'))
+                    edit({
+                      ...board,
+                      tiebreakers: board.tiebreakers!.filter((_, i) => i !== index),
+                    });
+                }}
+              >
+                Remove clue
+              </button>
+            </div>
+          </fieldset>
+        ))}
+        <button
+          type="button"
+          className="button secondary"
+          disabled={preview || (board.tiebreakers?.length ?? 0) >= 20}
+          onClick={() =>
+            edit({
+              ...board,
+              tiebreakers: [...(board.tiebreakers ?? []), { category: '', prompt: '', answer: '' }],
+            })
+          }
+        >
+          Add tiebreaker clue
+        </button>
+      </section>
     </div>
   );
 }

@@ -33,6 +33,7 @@ beforeAll(async () => {
   // Apply the upgrade after rows exist to verify automatic backfill.
   await insertSession('112233');
   await pg.exec(readFileSync('supabase/migrations/002_question_json.sql', 'utf8'));
+  await pg.exec(readFileSync('supabase/migrations/003_saved_tiebreakers.sql', 'utf8'));
 }, 30000);
 afterAll(async () => {
   await pg.close();
@@ -46,6 +47,33 @@ async function insertSession(code = '123456') {
   return s;
 }
 describe('PostgreSQL persistence and authorization', () => {
+  it('stores saved clues in canonical JSON while freezing session copies independently of later edits', async () => {
+    const s = await insertSession('886655');
+    s.board.tiebreakers = [
+      { category: 'Capitals', prompt: 'Capital of Canada?', answer: 'Ottawa' },
+    ];
+    await pg.query('update public.sessions set state=$2 where id=$1', [s.id, JSON.stringify(s)]);
+    const row = await pg.query<{ question_json: QuestionJson }>(
+      'select question_json from public.sessions where id=$1',
+      [s.id],
+    );
+    expect(row.rows[0].question_json).toEqual(boardToQuestionJson(s.board));
+    expect(row.rows[0].question_json.tiebreakers?.[0].answer).toBe('Ottawa');
+    const board = starterBoard();
+    board.tiebreakers = [{ category: 'Elements', prompt: 'Symbol He?', answer: 'Helium' }];
+    await pg.query('update public.games set board=$2 where id=$1', [GAME, JSON.stringify(board)]);
+    const game = await pg.query<{ question_json: QuestionJson }>(
+      'select question_json from public.games where id=$1',
+      [GAME],
+    );
+    expect(game.rows[0].question_json).toEqual(boardToQuestionJson(board));
+    const frozen = await pg.query<{ question_json: QuestionJson }>(
+      'select question_json from public.sessions where id=$1',
+      [s.id],
+    );
+    expect(frozen.rows[0].question_json.tiebreakers?.[0].answer).toBe('Ottawa');
+  });
+
   it('persists tiebreaker rounds and winner atomically while keeping the session active until a correct response', async () => {
     const s = await insertSession('777551');
     s.version = 1;

@@ -49,3 +49,16 @@ Unknown properties, malformed JSON, empty required fields, oversized text, and u
 The server validates the import before any replacement. Importing never starts a session or changes an existing live session. Canceling the replacement confirmation leaves the current board intact.
 
 **Use current board JSON** fills the textarea with the current board, including manual edits. Incomplete drafts can be exported this way, but must be completed before re-import validation succeeds. The stored JSON is normalized and automatically synchronized from the saved board, including changes made through the visual editor.
+
+## Optional saved tiebreakers
+
+Add this top-level field alongside `categories` and `final`:
+
+```json
+"tiebreakers": [
+  {"category": "World capitals", "question": "Which city is the capital of Canada?", "answer": "What is Ottawa?"},
+  {"category": "Science", "question": "Which element has the chemical symbol He?", "answer": "What is helium?"}
+]
+```
+
+The array is optional and may be empty; at most 20 clues are allowed. Category: 1–100 characters; question: 1–3,000; answer: 1–2,000. Unknown fields (including dollar values/wagers), blank strings and oversized entries are rejected. Clues retain array order. The host presents the next saved clue with one click during sudden death. Exhausting the list allows custom entry; saved clues are never repeated automatically. All fields can also be edited/reordered under **Sudden-death tiebreakers** in Create/Edit Game. Older JSON without the field remains valid. Apply `003_saved_tiebreakers.sql` after 002 to update the stored database JSON generator.

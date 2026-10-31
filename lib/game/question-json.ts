@@ -28,6 +28,18 @@ export const questionJsonSchema = z
       )
       .min(1)
       .max(8),
+    tiebreakers: z
+      .array(
+        z
+          .object({
+            category: requiredText(100),
+            question: requiredText(3000),
+            answer: requiredText(2000),
+          })
+          .strict(),
+      )
+      .max(20)
+      .optional(),
     final: z
       .object({
         category: requiredText(100),
@@ -69,6 +81,15 @@ export function questionJsonToBoard(input: unknown): Board {
   const value = questionJsonSchema.parse(input);
   const board = boardSchema.parse({
     title: value.title,
+    ...(value.tiebreakers !== undefined
+      ? {
+          tiebreakers: value.tiebreakers.map((q) => ({
+            category: q.category,
+            prompt: q.question,
+            answer: q.answer,
+          })),
+        }
+      : {}),
     categories: value.categories.map((c) => c.name),
     rows: value.categories[0].questions.length,
     questions: value.categories.flatMap((category, column) =>
@@ -108,6 +129,15 @@ export function parseQuestionJson(text: string): Board {
 export function boardToQuestionJson(board: Board): QuestionJson {
   return {
     title: board.title,
+    ...(board.tiebreakers !== undefined
+      ? {
+          tiebreakers: board.tiebreakers.map((q) => ({
+            category: q.category,
+            question: q.prompt,
+            answer: q.answer,
+          })),
+        }
+      : {}),
     categories: board.categories.map((name, index) => ({
       name,
       questions: board.questions
@@ -131,6 +161,18 @@ export function boardToQuestionJson(board: Board): QuestionJson {
 export const QUESTION_JSON_EXAMPLE = JSON.stringify(
   {
     title: 'My trivia night',
+    tiebreakers: [
+      {
+        category: 'World capitals',
+        question: 'Which city is the capital of Canada?',
+        answer: 'What is Ottawa?',
+      },
+      {
+        category: 'Science',
+        question: 'Which element has the chemical symbol He?',
+        answer: 'What is helium?',
+      },
+    ],
     categories: [
       {
         name: 'Science',

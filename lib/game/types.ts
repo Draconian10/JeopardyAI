@@ -85,7 +85,12 @@ export interface Session {
   events: ScoreEvent[];
   history: { actionId: string; type: string; userId: string; at: number; phase: Phase }[];
   processed: string[];
-  tiebreaker?: { playerIds: string[]; winnerId?: string; rounds: TiebreakerRound[] };
+  tiebreaker?: {
+    playerIds: string[];
+    winnerId?: string;
+    rounds: TiebreakerRound[];
+    savedCluesUsed?: number;
+  };
   undo?: {
     phase: Phase;
     respondent?: string;
@@ -155,6 +160,8 @@ export interface SessionView {
     playerIds: string[];
     winnerId?: string;
     roundNumber: number;
+    savedCluesRemaining?: number;
+    nextSavedCategory?: string;
     round?: Omit<TiebreakerRound, 'answer'> & { answer?: string };
   };
   canUndo: boolean;
