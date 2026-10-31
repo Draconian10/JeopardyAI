@@ -22,6 +22,7 @@ interface DashboardData {
   sessions: {
     id: string;
     gameId: string;
+    title: string;
     joinCode: string;
     active: boolean;
     phase: string;
@@ -248,7 +249,7 @@ function DashboardInner() {
                 .map((s) => (
                   <Link key={s.id} href={`/host/session/${s.id}`}>
                     <span>
-                      <b>{data.games.find((g) => g.id === s.gameId)?.title ?? 'Game'}</b>
+                      <b>{s.title}</b>
                       <small>{new Date(s.createdAt).toLocaleString()}</small>
                     </span>
                     <span>

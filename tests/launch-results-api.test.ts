@@ -146,3 +146,58 @@ describe('results download', () => {
     expect((await req('sessions', s.id, 'results')).status).toBe(200);
   });
 });
+
+describe('dashboard session history titles', () => {
+  it('returns frozen session titles rather than renamed board titles without exposing private state', async () => {
+    s.title = 'Original round';
+    s.board.title = 'Original round';
+    const eq = vi.fn();
+    mocks.db.mockReturnValue({
+      from: (table: string) => {
+        const query = {
+          select: vi.fn(() => query),
+          eq: vi.fn((...args: unknown[]) => {
+            eq(...args);
+            return query;
+          }),
+          order: vi.fn(async () => ({
+            data:
+              table === 'games'
+                ? [
+                    {
+                      id: GAME,
+                      board: { ...s.board, title: 'Renamed round' },
+                      version: 2,
+                      updated_at: new Date().toISOString(),
+                      archived: false,
+                    },
+                  ]
+                : [
+                    {
+                      id: s.id,
+                      game_id: GAME,
+                      join_code: s.joinCode,
+                      active: false,
+                      state: s,
+                      created_at: new Date().toISOString(),
+                    },
+                  ],
+            error: null,
+          })),
+        };
+        return query;
+      },
+    });
+    const response = await GET(new NextRequest('http://localhost/api/games'), {
+      params: Promise.resolve({ path: ['games'] }),
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.games[0].title).toBe('Renamed round');
+    expect(body.sessions[0].title).toBe('Original round');
+    expect(body.sessions[0]).not.toHaveProperty('state');
+    expect(body.sessions[0]).not.toHaveProperty('board');
+    expect(eq).toHaveBeenCalledWith('owner_id', HOST);
+    expect(eq).toHaveBeenCalledWith('host_id', HOST);
+  });
+});

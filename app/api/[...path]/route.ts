@@ -86,6 +86,7 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
           sessions: sessions.data.map((s) => ({
             id: s.id,
             gameId: s.game_id,
+            title: s.state.title ?? s.state.board?.title ?? 'Game',
             joinCode: s.join_code,
             active: s.active,
             phase: s.state.phase,

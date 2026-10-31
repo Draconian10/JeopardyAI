@@ -85,6 +85,7 @@ async function mock(page: Page, initial: Session, userId = HOST) {
             {
               id: s.id,
               gameId: s.gameId,
+              title: s.title,
               joinCode: s.joinCode,
               active: !['ended', 'finished'].includes(s.phase),
               phase: s.phase,
@@ -1064,4 +1065,56 @@ test('host presents saved clues in order across a reload and gets manual fallbac
   await page.getByRole('button', { name: 'Prepare another clue' }).click();
   await expect(page.getByRole('button', { name: 'Present next saved clue' })).toHaveCount(0);
   await expect(page.getByLabel('Tiebreaker clue', { exact: true })).toBeVisible();
+});
+
+test('previous games retain their session titles after the board is renamed', async ({ page }) => {
+  const s = fixture();
+  s.phase = 'finished';
+  s.title = 'Round 1';
+  await mock(page, s);
+  await page.route('**/api/games', (route) =>
+    route.fulfill({
+      json: {
+        games: [
+          {
+            id: s.gameId,
+            title: 'Round 3',
+            version: 2,
+            updatedAt: new Date().toISOString(),
+            archived: false,
+          },
+        ],
+        sessions: [
+          {
+            id: s.id,
+            gameId: s.gameId,
+            title: 'Round 1',
+            joinCode: s.joinCode,
+            active: false,
+            phase: 'finished',
+            players: 2,
+            createdAt: new Date().toISOString(),
+          },
+          {
+            id: '77777777-7777-4777-8777-777777777777',
+            gameId: s.gameId,
+            title: 'Round 2',
+            joinCode: '223344',
+            active: false,
+            phase: 'ended',
+            players: 2,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      },
+    }),
+  );
+  await page.goto('/host');
+  await expect(page.locator('.game-card').getByText('Round 3', { exact: true })).toBeVisible();
+  const history = page.locator('.history-list');
+  await expect(history.getByText('Round 1', { exact: true })).toBeVisible();
+  await expect(history.getByText('Round 2', { exact: true })).toBeVisible();
+  await expect(history.getByText('Round 3', { exact: true })).toHaveCount(0);
+  await history.getByRole('link').filter({ hasText: 'Round 1' }).click();
+  await expect(page.locator('.live-heading h1')).toHaveText('Round 1');
 });
