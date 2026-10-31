@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { applyCommand, createSession, viewSession } from '../../lib/game/engine';
 import { starterBoard } from '../../lib/game/starter';
+import { parseQuestionJson, QUESTION_JSON_EXAMPLE } from '../../lib/game/question-json';
 import type { Session } from '../../lib/game/types';
 const HOST = '11111111-1111-4111-8111-111111111111',
   PLAYER = '22222222-2222-4222-8222-222222222222',
@@ -54,6 +55,13 @@ async function mock(page: Page, initial: Session, userId = HOST) {
     const request = route.request();
     const url = new URL(request.url());
     let controller = request.headers()['x-controller'];
+    if (url.pathname === '/api/games/import') {
+      try {
+        return route.fulfill({ json: { board: parseQuestionJson(request.postDataJSON().text) } });
+      } catch (error) {
+        return route.fulfill({ status: 400, json: { error: (error as Error).message } });
+      }
+    }
     if (url.pathname === '/api/games')
       return route.fulfill({
         json: {
@@ -198,4 +206,44 @@ test('audience view never displays private host answers', async ({ page }) => {
   await expect(page.getByRole('heading', { name: s.board.questions[0].prompt })).toBeVisible();
   await expect(page.getByText(s.board.questions[0].answer, { exact: true })).toHaveCount(0);
   await expect(page.getByText('Private host answer')).toHaveCount(0);
+});
+
+test('JSON import validates before replacing the board and can save imported questions', async ({
+  page,
+}) => {
+  const s = fixture();
+  await mock(page, s);
+  await page.goto(`/host/edit/${s.gameId}`);
+  await page.getByRole('button', { name: 'Import JSON', exact: true }).click();
+  await page.getByLabel('Game JSON', { exact: true }).fill('{broken');
+  await page.getByRole('button', { name: 'Validate & apply JSON' }).click();
+  await expect(
+    page.getByText('Invalid JSON. Check double quotes, commas, and closing brackets.'),
+  ).toBeVisible();
+  await expect(page.getByLabel('Game title', { exact: true })).toHaveValue(s.title);
+  await page.getByRole('button', { name: 'Load JSON example' }).click();
+  await expect(page.getByLabel('Game JSON', { exact: true })).toHaveValue(QUESTION_JSON_EXAMPLE);
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Validate & apply JSON' }).click();
+  await expect(page.getByLabel('Game title', { exact: true })).toHaveValue('My trivia night');
+  await expect(page.getByRole('textbox', { name: 'Question', exact: true })).toHaveValue(
+    'Which planet is known as the Red Planet?',
+  );
+  const saved = page.waitForRequest(
+    (request) => request.url().includes(`/api/games/${s.gameId}`) && request.method() === 'PUT',
+  );
+  await page.getByRole('button', { name: 'Save game', exact: true }).click();
+  expect((await saved).postDataJSON().board.categories).toEqual(['Science', 'Geography']);
+});
+
+test('canceling a JSON import preserves the existing board', async ({ page }) => {
+  const s = fixture();
+  await mock(page, s);
+  await page.goto(`/host/edit/${s.gameId}`);
+  await page.getByRole('button', { name: 'Import JSON', exact: true }).click();
+  await page.getByRole('button', { name: 'Load JSON example' }).click();
+  page.once('dialog', (dialog) => dialog.dismiss());
+  await page.getByRole('button', { name: 'Validate & apply JSON' }).click();
+  await expect(page.getByLabel('Game title', { exact: true })).toHaveValue(s.title);
+  await expect(page.locator('.board-tile')).toHaveCount(30);
 });

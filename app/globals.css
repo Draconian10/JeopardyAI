@@ -2216,3 +2216,34 @@ input[type='checkbox'] {
     scroll-behavior: auto !important;
   }
 }
+
+.json-import-panel {
+  margin-bottom: 24px;
+}
+.json-import-panel .section-line {
+  margin-bottom: 0;
+  flex-wrap: wrap;
+}
+.json-import-panel .section-line h2 {
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+.json-import-panel .section-line p {
+  margin-bottom: 0;
+}
+#question-json-import {
+  margin-top: 22px;
+}
+#question-json-import > label {
+  margin: 14px 0 8px;
+}
+.json-textarea {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  margin-bottom: 16px;
+  tab-size: 2;
+}
+.json-import-panel > p {
+  margin: 16px 0 0;
+}

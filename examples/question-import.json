@@ -1,0 +1,22 @@
+{
+  "title": "My game",
+  "categories": [
+    {
+      "name": "Science",
+      "questions": [
+        {
+          "value": 200,
+          "question": "Which planet is known as the Red Planet?",
+          "answer": "Mars",
+          "notes": "Also accept: the fourth planet",
+          "dailyDouble": true
+        }
+      ]
+    }
+  ],
+  "final": {
+    "category": "World Landmarks",
+    "question": "Which Indian mausoleum was commissioned by Shah Jahan?",
+    "answer": "The Taj Mahal"
+  }
+}

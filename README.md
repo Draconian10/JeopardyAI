@@ -6,6 +6,7 @@ A responsive, self-hostable Jeopardy game for **Next.js + Vercel + Supabase**. T
 
 - Host email/password accounts and guest player identities.
 - Saved boards, editable categories and values, 1–8 columns and rows, duplicate/archive actions, and a complete 30-question starter board.
+- Paste category-based JSON to create a complete board, with validation, an editable example, and database-stored JSON for saved games and hosted sessions.
 - Server autosave for existing boards; explicit initial Save with a six-digit host PIN. Incomplete drafts can be saved, but cannot be started.
 - Lobby with a separate six-digit join code, QR code, player list, connection status, lobby lock, and removal.
 - Server-authoritative, atomic first-buzz arbitration and 30-second windows.
@@ -25,7 +26,7 @@ A responsive, self-hostable Jeopardy game for **Next.js + Vercel + Supabase**. T
 ## 1. Configure Supabase
 
 1. Create a Supabase project. Choose a region near the players; use the closest Vercel function region as well.
-2. Open **SQL Editor**, paste the contents of [`supabase/migrations/001_initial.sql`](supabase/migrations/001_initial.sql), and run it **once**. Alternatively, use the Supabase CLI migration workflow.
+2. Open **SQL Editor**, paste the contents of [`supabase/migrations/001_initial.sql`](supabase/migrations/001_initial.sql), and run it **once**, then apply [`002_question_json.sql`](supabase/migrations/002_question_json.sql). For an existing installation, run only unapplied migrations in order. Alternatively, use the Supabase CLI migration workflow.
 3. Under **Authentication → Providers**, enable **Email** and **Anonymous Sign-Ins**. Anonymous users are players; hosts use email/password accounts.
 4. Under **Authentication → URL Configuration**, set the Site URL to your Vercel production URL. Add your local URL (`http://localhost:3000`) and any preview URLs you intentionally use to the redirect allowlist.
 5. Under **Realtime Settings**, disable **Allow public access**, so channels must be private. The migration installs the channel authorization policy. No Postgres Changes publication is required.
@@ -69,6 +70,14 @@ Use a separate browser profile/private window or a phone for each player. A host
 5. Sign in, start a session, and join from a second device. Verify buzz arbitration and close/reopen the host tab before your first real game night.
 
 No long-running WebSocket server is deployed inside the app. Vercel handles short authenticated HTTP commands; Supabase provides persistent state and private Realtime notifications. No cron job is required to keep sessions alive.
+
+## Import questions from JSON
+
+In **Create new game** (or an existing board editor), select **Import JSON**. Paste your JSON or choose **Load JSON example**, then select **Validate & apply JSON**. A valid import replaces the board only after confirmation. Enter the host PIN separately and save the new game; existing games also autosave after import.
+
+Use the complete [example](examples/question-import.json) and [format guide](docs/question-json.md). Imports require 1–8 unique categories, 1–8 questions per category with the same count in every category, valid point values, exactly one Daily Double, and a complete Final Jeopardy question. Errors do not replace your current board.
+
+Apply `supabase/migrations/002_question_json.sql` to an existing database before using this feature. PostgreSQL stores canonical category-based JSON in **`games.question_json`** and **`sessions.question_json`**. Stored generated columns automatically backfill old records and stay synchronized with manual edits, duplication, and autosave. The session copy remains based on its frozen board, so editing a saved game cannot change an ongoing match. Whitespace and omitted optional fields are normalized; the original pasted formatting is not stored. These columns contain answers and retain the existing private access rules.
 
 ## Resume behavior
 

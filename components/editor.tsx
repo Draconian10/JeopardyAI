@@ -7,6 +7,11 @@ import { HostAuth } from './auth';
 import { api, money } from '@/lib/client';
 import { boardSchema, playable, type Board } from '@/lib/game/schema';
 import { blankBoard, starterBoard } from '@/lib/game/starter';
+import {
+  boardToQuestionJson,
+  MAX_QUESTION_JSON_LENGTH,
+  QUESTION_JSON_EXAMPLE,
+} from '@/lib/game/question-json';
 export default function Editor({ id }: { id: string }) {
   return <HostAuth>{() => <EditorInner id={id} />}</HostAuth>;
 }
@@ -17,6 +22,11 @@ function EditorInner({ id }: { id: string }) {
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
   const [preview, setPreview] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [jsonText, setJsonText] = useState('');
+  const [importError, setImportError] = useState('');
+  const [importNotice, setImportNotice] = useState('');
+  const [importBusy, setImportBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const autoBlocked = useRef(false);
   const version = useRef(0);
@@ -159,6 +169,121 @@ function EditorInner({ id }: { id: string }) {
       <p className="error" role="alert">
         {error}
       </p>
+      <section className="panel json-import-panel">
+        <div className="section-line">
+          <div>
+            <h2>Create your board from JSON</h2>
+            <p className="muted small">
+              Paste questions grouped by category to fill the entire board at once.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="button secondary"
+            aria-expanded={importOpen}
+            aria-controls="question-json-import"
+            onClick={() => {
+              setImportOpen(!importOpen);
+              setImportError('');
+            }}
+          >
+            {' '}
+            {importOpen ? 'Close JSON editor' : 'Import JSON'}{' '}
+          </button>
+        </div>
+        {importOpen && (
+          <div id="question-json-import">
+            <p className="muted small">
+              Include a title, categories with equally sized questions lists, and Final Jeopardy.
+              Each question needs value, question, and answer. Mark exactly one dailyDouble as true.
+              Your host PIN is entered separately below.
+            </p>
+            <div className="button-row">
+              <button
+                type="button"
+                className="text-button"
+                disabled={importBusy}
+                onClick={() => {
+                  setJsonText(QUESTION_JSON_EXAMPLE);
+                  setImportError('');
+                }}
+              >
+                Load JSON example
+              </button>
+              <button
+                type="button"
+                className="text-button"
+                disabled={importBusy}
+                onClick={() => {
+                  setJsonText(JSON.stringify(boardToQuestionJson(board), null, 2));
+                  setImportError('');
+                }}
+              >
+                Use current board JSON
+              </button>
+            </div>
+            <label htmlFor="game-question-json">Game JSON</label>
+            <textarea
+              id="game-question-json"
+              className="json-textarea"
+              rows={15}
+              maxLength={MAX_QUESTION_JSON_LENGTH}
+              spellCheck={false}
+              value={jsonText}
+              disabled={importBusy}
+              onChange={(e) => {
+                setJsonText(e.target.value);
+                setImportError('');
+                setImportNotice('');
+              }}
+              placeholder={'{ "title": "My game", "categories": [...], "final": {...} }'}
+            />
+            <p className="error" role="alert">
+              {importError}
+            </p>
+            <div className="button-row">
+              <button
+                type="button"
+                className="button primary"
+                disabled={busy || importBusy || !jsonText.trim()}
+                onClick={async () => {
+                  setImportBusy(true);
+                  setImportError('');
+                  setImportNotice('');
+                  try {
+                    const result = await api<{ board: Board }>('games/import', 'POST', {
+                      text: jsonText,
+                    });
+                    if (!window.confirm('Replace the current board with these JSON questions?'))
+                      return;
+                    edit(result.board);
+                    setSelected(result.board.questions[0].id);
+                    setPreview(false);
+                    setJsonText(JSON.stringify(boardToQuestionJson(result.board), null, 2));
+                    setImportNotice(
+                      `Imported ${result.board.questions.length} questions across ${result.board.categories.length} categories. ${id === 'new' ? 'Set your host PIN and save the game.' : 'Save the game or wait for autosave.'}`,
+                    );
+                  } catch (error) {
+                    setImportError((error as Error).message);
+                  } finally {
+                    setImportBusy(false);
+                  }
+                }}
+              >
+                {importBusy ? 'Validating JSON…' : 'Validate & apply JSON'}
+              </button>
+              <span className="muted small">
+                Applying replaces the board only after validation and confirmation.
+              </span>
+            </div>
+          </div>
+        )}
+        {importNotice && (
+          <p className="positive small" role="status">
+            {importNotice}
+          </p>
+        )}
+      </section>
       <div className="editor-meta panel">
         <label className="grow">
           Game title

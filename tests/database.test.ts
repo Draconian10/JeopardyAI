@@ -3,6 +3,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { readFileSync } from 'node:fs';
 import { applyCommand, createSession } from '@/lib/game/engine';
 import { starterBoard } from '@/lib/game/starter';
+import { boardToQuestionJson, type QuestionJson } from '@/lib/game/question-json';
 const pg = new PGlite();
 const HOST = crypto.randomUUID(),
   PLAYER = crypto.randomUUID(),
@@ -29,6 +30,9 @@ beforeAll(async () => {
     JSON.stringify(starterBoard()),
     'test-hash',
   ]);
+  // Apply the upgrade after rows exist to verify automatic backfill.
+  await insertSession('112233');
+  await pg.exec(readFileSync('supabase/migrations/002_question_json.sql', 'utf8'));
 }, 30000);
 afterAll(async () => {
   await pg.close();
@@ -186,6 +190,58 @@ describe('PostgreSQL persistence and authorization', () => {
     expect((await launch(one)).rows[0].id).toBe(one.id);
     await expect(launch(two)).rejects.toThrow('unfinished session');
     expect((await launch(two, true)).rows[0].id).toBe(two.id);
+  });
+  it('backfills category JSON for pre-existing games and sessions', async () => {
+    const game = await pg.query<{
+      board: Parameters<typeof boardToQuestionJson>[0];
+      question_json: QuestionJson;
+    }>('select board,question_json from public.games where id=$1', [GAME]);
+    expect(game.rows[0].question_json).toEqual(boardToQuestionJson(game.rows[0].board));
+    const sessions = await pg.query<{
+      state: ReturnType<typeof createSession>;
+      question_json: QuestionJson;
+    }>("select state,question_json from public.sessions where join_code='112233'");
+    expect(sessions.rows[0].question_json).toEqual(
+      boardToQuestionJson(sessions.rows[0].state.board),
+    );
+  });
+  it('keeps saved JSON synchronized with edits while hosted session JSON remains frozen', async () => {
+    const s = await insertSession('112234');
+    const saved = await pg.query<{ board: Parameters<typeof boardToQuestionJson>[0] }>(
+      'select board from public.games where id=$1',
+      [GAME],
+    );
+    const updated = saved.rows[0].board;
+    updated.questions[0].prompt = 'Edited after hosting';
+    await pg.query('update public.games set board=$1 where id=$2', [JSON.stringify(updated), GAME]);
+    const game = await pg.query<{ question_json: QuestionJson }>(
+      'select question_json from public.games where id=$1',
+      [GAME],
+    );
+    expect(game.rows[0].question_json.categories[0].questions[0].question).toBe(
+      'Edited after hosting',
+    );
+    const session = await pg.query<{ question_json: QuestionJson }>(
+      'select question_json from public.sessions where id=$1',
+      [s.id],
+    );
+    expect(session.rows[0].question_json).toEqual(boardToQuestionJson(s.board));
+    expect(session.rows[0].question_json.categories[0].questions[0].question).not.toBe(
+      'Edited after hosting',
+    );
+  });
+  it('does not grant browsers access to stored question JSON', async () => {
+    await pg.exec('set role authenticated');
+    try {
+      await expect(pg.query('select question_json from public.games')).rejects.toThrow(
+        'permission denied',
+      );
+      await expect(pg.query('select question_json from public.sessions')).rejects.toThrow(
+        'permission denied',
+      );
+    } finally {
+      await pg.exec('reset role');
+    }
   });
   it('does not roll back durable state if Realtime publishing fails', async () => {
     const s = await insertSession('999991');

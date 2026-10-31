@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomInt } from 'node:crypto';
+import { parseQuestionJson, MAX_QUESTION_JSON_LENGTH } from '@/lib/game/question-json';
 import { z } from 'zod';
 import { db, hashPin, verifyPin, identity, hostOnly, limit } from '@/lib/server/db';
 import { loadSession, mutate, readSession } from '@/lib/server/sessions';
@@ -11,7 +12,7 @@ export const maxDuration = 30;
 const uuid = z.string().uuid();
 async function json(req: NextRequest) {
   const raw = await req.text();
-  if (raw.length > 600000) throw new GameError('Request is too large.', 413);
+  if (raw.length > 1500000) throw new GameError('Request is too large.', 413);
   try {
     return JSON.parse(raw);
   } catch {
@@ -77,6 +78,19 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
         if (error) throw new GameError('Could not create game.', 503);
         return NextResponse.json(data, { status: 201 });
       }
+      if (req.method === 'POST' && id === 'import' && !op) {
+        await limit(req, user.id, 'save', 30);
+        const body = z
+          .object({ text: z.string().max(MAX_QUESTION_JSON_LENGTH) })
+          .strict()
+          .parse(await json(req));
+        try {
+          return NextResponse.json({ board: parseQuestionJson(body.text) });
+        } catch (error) {
+          if (error instanceof z.ZodError) throw error;
+          throw new GameError((error as Error).message);
+        }
+      }
       uuid.parse(id);
       const { data: game, error } = await database
         .from('games')
@@ -86,7 +100,12 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
         .single();
       if (error || !game) throw new GameError('Game not found.', 404);
       if (req.method === 'GET' && !op)
-        return NextResponse.json({ id: game.id, board: game.board, version: game.version });
+        return NextResponse.json({
+          id: game.id,
+          board: game.board,
+          version: game.version,
+          questionJson: game.question_json,
+        });
       if (req.method === 'PUT' && !op) {
         await limit(req, user.id, 'save', 30);
         const body = saveSchema.parse(await json(req));
@@ -276,7 +295,7 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
   } catch (error) {
     const message =
       error instanceof z.ZodError
-        ? error.issues.map((i) => i.message).join(' ')
+        ? error.issues.map((i) => `${i.path.join('.') || 'JSON'}: ${i.message}`).join(' ')
         : error instanceof GameError
           ? error.message
           : error instanceof Error && error.message.startsWith('Complete')
