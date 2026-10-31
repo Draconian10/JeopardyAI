@@ -168,3 +168,9 @@ Going Home does not remove a player from their session. Home and Join Game show 
 - **Standings:** Rows move to their new ranks as scores change, with highlighted score updates and question score deltas. The reveal screen animates from the pre-question order; the live sidebar animates from the last displayed positions. With reduced motion enabled, rankings update immediately.
 
 These additions use existing session JSON and CAS persistence; **no new Supabase migration is required**.
+
+## Connection recovery and final celebration
+
+Temporary snapshot/network errors clear automatically after a successful game snapshot, including when returning to a tab. The last known score stays visible during reconnection. Request ordering prevents an older failed fetch from overwriting a newer successful connection. Gameplay validation errors remain visible until the next explicit action; background polling does not dismiss them.
+
+Completed games show a brief, silent gold-and-purple confetti burst and a refined final-results panel. The overlay never intercepts controls, runs once per match per browser tab (tracked with session storage), and stops after roughly 3.4 seconds. Refreshing the same results does not replay it. Reduced-motion preferences disable confetti, and sessions ended early do not trigger a winner celebration. No new dependency or Supabase migration is required.

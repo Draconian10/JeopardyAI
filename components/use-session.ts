@@ -1,6 +1,6 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, configured, supabase } from '@/lib/client';
+import { api, ApiError, configured, supabase } from '@/lib/client';
 import type { SessionView } from '@/lib/game/types';
 import type { Command } from '@/lib/game/schema';
 export function useSession(id: string, role: 'host' | 'player' | 'audience') {
@@ -9,18 +9,34 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
   const [userId, setUserId] = useState('');
   const [controller, setController] = useState('');
   const [error, setError] = useState('');
+  const [syncError, setSyncError] = useState('');
+  const requestSequence = useRef(0);
+  const latestConnectionResult = useRef(0);
   const [connected, setConnected] = useState(false);
   const [busy, setBusy] = useState(false);
   const offset = useRef(0);
-  const accept = useCallback((next: SessionView) => {
+  const failSync = useCallback((failure: unknown, sequence: number) => {
+    if (sequence < latestConnectionResult.current) return;
+    latestConnectionResult.current = sequence;
+    setConnected(false);
+    setSyncError(
+      failure instanceof Error ? failure.message : 'Could not fetch the game. Reconnecting…',
+    );
+  }, []);
+  const accept = useCallback((next: SessionView, sequence: number) => {
     if (!stateRef.current || next.version >= stateRef.current.version) {
       stateRef.current = next;
       offset.current = next.serverNow - Date.now();
       setState(next);
     }
-    setConnected(true);
+    if (sequence >= latestConnectionResult.current) {
+      latestConnectionResult.current = sequence;
+      setConnected(true);
+      setSyncError('');
+    }
   }, []);
   const refresh = useCallback(async () => {
+    const sequence = ++requestSequence.current;
     try {
       const next = await api<SessionView>(
         `sessions/${id}${role === 'audience' ? '?view=audience' : ''}`,
@@ -28,12 +44,11 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
         undefined,
         controller || undefined,
       );
-      accept(next);
+      accept(next, sequence);
     } catch (e) {
-      setConnected(false);
-      setError((e as Error).message);
+      failSync(e, sequence);
     }
-  }, [id, role, controller, accept]);
+  }, [id, role, controller, accept, failSync]);
   useEffect(() => {
     if (role === 'host') setController(crypto.randomUUID());
   }, [role]);
@@ -44,7 +59,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
     client.auth.getUser().then(({ data, error }) => {
       if (dead) return;
       if (error || !data.user) {
-        setError('Sign in or join the game again in this browser.');
+        setSyncError('Sign in or join the game again in this browser.');
         return;
       }
       setUserId(data.user.id);
@@ -66,24 +81,26 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
       })
       .subscribe();
 
-    const focus = () => {
-      void refresh();
-    };
-    window.addEventListener('online', focus);
-    window.addEventListener('focus', focus);
-    document.addEventListener('visibilitychange', focus);
     return () => {
       alive = false;
-      window.removeEventListener('online', focus);
-      window.removeEventListener('focus', focus);
-      document.removeEventListener('visibilitychange', focus);
       void client.removeChannel(channel);
     };
   }, [id, userId, refresh, role, !!state?.controllerOwned, !!state]);
   useEffect(() => {
     if (!userId) return;
     const timer = setInterval(() => void refresh(), 3000);
-    return () => clearInterval(timer);
+    const focus = () => {
+      if (document.visibilityState === 'visible') void refresh();
+    };
+    window.addEventListener('online', focus);
+    window.addEventListener('focus', focus);
+    document.addEventListener('visibilitychange', focus);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('online', focus);
+      window.removeEventListener('focus', focus);
+      document.removeEventListener('visibilitychange', focus);
+    };
   }, [userId, refresh]);
   const send = useCallback(
     async (command: Command, quiet = false) => {
@@ -93,6 +110,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
         setBusy(true);
         setError('');
       }
+      const sequence = ++requestSequence.current;
       try {
         const next = await api<SessionView>(
           `sessions/${id}/command`,
@@ -105,17 +123,21 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
           },
           controller || undefined,
         );
-        accept(next);
+        accept(next, sequence);
         return true;
       } catch (e) {
-        if (!quiet) setError((e as Error).message);
+        const gameplayError =
+          e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 401;
+        if (gameplayError) {
+          if (!quiet) setError(e.message);
+        } else failSync(e, sequence);
         await refresh();
         return false;
       } finally {
         if (!quiet) setBusy(false);
       }
     },
-    [id, controller, accept, refresh],
+    [id, controller, accept, refresh, failSync],
   );
   useEffect(() => {
     if (!state || role === 'audience' || !userId) return;
@@ -153,7 +175,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
     state,
     userId,
     controller,
-    error,
+    error: error || syncError,
     setError,
     connected,
     busy,

@@ -27,6 +27,7 @@ import { HostAuth, SetupNotice } from './auth';
 import { configured, money } from '@/lib/client';
 import { useSession } from './use-session';
 import Standings from './standings';
+import ResultsConfetti from './results-confetti';
 import PracticeRound from './practice-round';
 import { PRACTICE_PHASES } from '@/lib/game/engine';
 import type { SessionView } from '@/lib/game/types';
@@ -218,9 +219,9 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
     </form>
   );
   const finishedContent = (
-    <div className="celebration panel">
+    <div className={`celebration panel ${s.phase === 'finished' ? 'final-celebration' : ''}`}>
       <Trophy className="winner-icon" size={64} />
-      <span className="eyebrow">{s.phase === 'finished' ? 'THAT’S A WRAP' : 'SESSION ENDED'}</span>
+      <span className="eyebrow">{s.phase === 'finished' ? 'FINAL RESULTS' : 'SESSION ENDED'}</span>
       <h1>
         {s.phase === 'finished'
           ? (() => {
@@ -232,7 +233,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
       </h1>
       <p className="muted">
         {s.phase === 'finished'
-          ? 'The scores are final. The bragging rights are forever.'
+          ? 'Final standings are confirmed. Congratulations!'
           : 'Your game history has been saved.'}
       </p>
       {s.finalAnswer && (
@@ -251,6 +252,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
     <div
       className={`container session-container ${player ? 'player-container' : ''} ${audience ? 'audience-container' : ''}`}
     >
+      {s.phase === 'finished' && <ResultsConfetti sessionId={s.id} />}
       <div className="session-topline">
         <Link className="back-link" href={host ? '/host' : '/'}>
           <ArrowLeft size={15} />

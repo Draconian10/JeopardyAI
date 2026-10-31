@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type Route } from '@playwright/test';
 import { applyCommand, createSession, viewSession, reconcile } from '../../lib/game/engine';
 import { starterBoard } from '../../lib/game/starter';
 import { playerSessionSummary } from '../../lib/game/player-sessions';
@@ -423,4 +423,198 @@ test('answer deadline expires on the server and deducts points before reopening 
   await expect(page.locator('.personal-score strong')).toHaveText('-$200');
   await expect(page.getByText(/Answer time expired for Alex/)).toBeVisible();
   expect(current().events).toHaveLength(1);
+});
+
+const settleFrames = (page: Page) =>
+  page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+
+test('temporary background fetch errors clear after recovery without buzzing or losing the score', async ({
+  page,
+}) => {
+  const s = fixture();
+  s.phase = 'board';
+  s.players[0].score = 800;
+  const current = await mock(page, s, PLAYER);
+  await page.goto(`/play/${s.id}`);
+  await expect(page.locator('.personal-score strong')).toHaveText('$800');
+  let failReads = true;
+  await page.route(`**/api/sessions/${s.id}`, async (route) => {
+    if (failReads) return route.abort('failed');
+    return route.fallback();
+  });
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.locator('.session-container p[role="alert"]')).toContainText(
+    /Failed to fetch/i,
+  );
+  await expect(page.locator('.personal-score strong')).toHaveText('$800');
+  current().players[0].score = 1000;
+  current().version++;
+  failReads = false;
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect(page.locator('.personal-score strong')).toHaveText('$1,000');
+  await expect(page.locator('.session-container p[role="alert"]')).toBeEmpty();
+  await expect(page.locator('.connection')).toHaveText('Connected');
+});
+
+test('a gameplay validation error survives successful synchronization and clears on the next action', async ({
+  page,
+}) => {
+  const s = fixture();
+  s.phase = 'question';
+  s.windowId = crypto.randomUUID();
+  s.questionId = s.board.questions[0].id;
+  s.deadline = Date.now() + 30000;
+  await mock(page, s, PLAYER);
+  await page.goto(`/play/${s.id}`);
+  await expect(page.getByRole('button', { name: 'BUZZ!', exact: false })).toBeEnabled();
+  let reject = true;
+  await page.route(`**/api/sessions/${s.id}/command`, async (route) => {
+    if (reject && route.request().postDataJSON().command.type === 'buzz') {
+      reject = false;
+      return route.fulfill({ status: 400, json: { error: 'You already answered this question.' } });
+    }
+    return route.fallback();
+  });
+  await page.getByRole('button', { name: 'BUZZ!', exact: false }).click();
+  await expect(page.locator('.session-container p[role="alert"]')).toHaveText(
+    'You already answered this question.',
+  );
+  await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().endsWith(`/api/sessions/${s.id}`) && r.request().method() === 'GET',
+    ),
+    page.evaluate(() => window.dispatchEvent(new Event('focus'))),
+  ]);
+  await expect(page.locator('.session-container p[role="alert"]')).toHaveText(
+    'You already answered this question.',
+  );
+  await page.getByRole('button', { name: 'BUZZ!', exact: false }).click();
+  await expect(page.getByRole('button', { name: 'YOU’RE UP!', exact: false })).toBeVisible();
+  await expect(page.locator('.session-container p[role="alert"]')).toBeEmpty();
+});
+
+test('a delayed older fetch failure cannot replace a newer successful connection', async ({
+  page,
+}) => {
+  const s = fixture();
+  s.phase = 'board';
+  s.players[0].score = 600;
+  const current = await mock(page, s, PLAYER);
+  await page.goto(`/play/${s.id}`);
+  await expect(page.locator('.personal-score strong')).toHaveText('$600');
+  let delayed: Route | undefined;
+  let first = true;
+  await page.route(`**/api/sessions/${s.id}`, async (route) => {
+    if (first) {
+      first = false;
+      delayed = route;
+      return;
+    }
+    return route.fallback();
+  });
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect.poll(() => !!delayed).toBe(true);
+  current().players[0].score = 900;
+  current().version++;
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.locator('.personal-score strong')).toHaveText('$900');
+  await delayed!.abort('failed');
+  await settleFrames(page);
+  await expect(page.locator('.session-container p[role="alert"]')).toBeEmpty();
+  await expect(page.locator('.connection')).toHaveText('Connected');
+});
+
+function finalFixture() {
+  const s = fixture();
+  s.phase = 'finished';
+  s.players[0].score = 2400;
+  s.final = {
+    [PLAYER]: { score: 1200, wager: 1200, text: 'The Taj Mahal', judged: true, correct: true },
+  };
+  return s;
+}
+
+test('final results launch a short confetti burst without blocking controls', async ({
+  page,
+}, testInfo) => {
+  const s = finalFixture();
+  await mock(page, s, PLAYER);
+  await page.goto(`/play/${s.id}`);
+  await expect(page.getByRole('heading', { name: 'Alex wins!', exact: true })).toBeVisible();
+  const confetti = page.getByTestId('results-confetti');
+  await expect(confetti).toBeVisible();
+  await expect(confetti).toHaveCSS('pointer-events', 'none');
+  await expect
+    .poll(() =>
+      confetti.evaluate((element) => {
+        const canvas = element as HTMLCanvasElement;
+        const pixels = canvas
+          .getContext('2d')!
+          .getImageData(0, 0, canvas.width, canvas.height).data;
+        let top = canvas.height,
+          bottom = 0;
+        for (let y = 0; y < canvas.height; y += 4) {
+          for (let x = 0; x < canvas.width; x += 4) {
+            if (pixels[(y * canvas.width + x) * 4 + 3] > 0) {
+              top = Math.min(top, y);
+              bottom = Math.max(bottom, y);
+            }
+          }
+        }
+        return (bottom - top) / canvas.height;
+      }),
+    )
+    .toBeGreaterThan(0.12);
+  await page.screenshot({ path: testInfo.outputPath('confetti-burst.png'), fullPage: true });
+
+  await expect(page.locator('.final-celebration')).toContainText('$2,400');
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          !!sessionStorage.getItem(
+            'jeopardy:results-confetti:' + location.pathname.split('/').pop(),
+          ),
+      ),
+    )
+    .toBe(true);
+  await expect(confetti).toHaveCount(0, { timeout: 5000 });
+});
+
+test('confetti does not replay when the same results page is refreshed', async ({ page }) => {
+  const s = finalFixture();
+  await mock(page, s, PLAYER);
+  await page.goto(`/play/${s.id}`);
+  await expect(page.getByTestId('results-confetti')).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Alex wins!', exact: true })).toBeVisible();
+  await settleFrames(page);
+  await expect(page.getByTestId('results-confetti')).toHaveCount(0);
+});
+
+test('final results respect reduced motion and remain fully usable', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const s = finalFixture();
+  await mock(page, s, PLAYER);
+  await page.goto(`/play/${s.id}`);
+  await expect(page.getByRole('heading', { name: 'Alex wins!', exact: true })).toBeVisible();
+  await settleFrames(page);
+  await expect(page.getByTestId('results-confetti')).toHaveCount(0);
+  await page.getByRole('link', { name: 'Back to home', exact: false }).click();
+  await expect(page).toHaveURL('/');
+});
+
+test('ending a session early does not trigger winner confetti', async ({ page }) => {
+  const s = fixture();
+  s.phase = 'ended';
+  await mock(page, s, PLAYER);
+  await page.goto(`/play/${s.id}`);
+  await expect(page.getByRole('heading', { name: 'Thanks for playing.' })).toBeVisible();
+  await settleFrames(page);
+  await expect(page.getByTestId('results-confetti')).toHaveCount(0);
 });

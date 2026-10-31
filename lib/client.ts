@@ -12,6 +12,15 @@ export function supabase() {
   );
   return instance;
 }
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
 export async function api<T>(
   path: string,
   method = 'GET',
@@ -19,7 +28,7 @@ export async function api<T>(
   controller?: string,
 ): Promise<T> {
   const { data } = await supabase().auth.getSession();
-  if (!data.session) throw new Error('Sign in or join the game first.');
+  if (!data.session) throw new ApiError('Sign in or join the game first.', 401);
   const response = await fetch(`/api/${path}`, {
     method,
     headers: {
@@ -31,7 +40,7 @@ export async function api<T>(
     cache: 'no-store',
   });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error ?? 'Request failed.');
+  if (!response.ok) throw new ApiError(result.error ?? 'Request failed.', response.status);
   return result as T;
 }
 export const money = (value: number) =>
