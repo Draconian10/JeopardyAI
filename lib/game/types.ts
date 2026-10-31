@@ -13,6 +13,10 @@ export type Phase =
   | 'finalWager'
   | 'finalAnswer'
   | 'finalReview'
+  | 'tieSetup'
+  | 'tieQuestion'
+  | 'tieAnswer'
+  | 'tieReveal'
   | 'finished'
   | 'ended';
 export interface Player {
@@ -36,6 +40,15 @@ export interface FinalEntry {
   text: string;
   judged?: boolean;
   correct?: boolean;
+}
+export interface TiebreakerRound {
+  id: string;
+  category: string;
+  prompt: string;
+  answer: string;
+  attempts: { playerId: string; correct: boolean; at: number; timedOut?: boolean }[];
+  outcome?: 'correct' | 'unanswered';
+  winnerId?: string;
 }
 export interface Session {
   id: string;
@@ -72,6 +85,7 @@ export interface Session {
   events: ScoreEvent[];
   history: { actionId: string; type: string; userId: string; at: number; phase: Phase }[];
   processed: string[];
+  tiebreaker?: { playerIds: string[]; winnerId?: string; rounds: TiebreakerRound[] };
   undo?: {
     phase: Phase;
     respondent?: string;
@@ -137,5 +151,11 @@ export interface SessionView {
   attempted: string[];
   daily?: { playerId: string; amount: number };
   events: ScoreEvent[];
+  tiebreaker?: {
+    playerIds: string[];
+    winnerId?: string;
+    roundNumber: number;
+    round?: Omit<TiebreakerRound, 'answer'> & { answer?: string };
+  };
   canUndo: boolean;
 }

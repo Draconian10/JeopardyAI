@@ -4,7 +4,12 @@ import type { Context, Phase, Session, SessionView } from './types';
 export const HOST_GRACE = 15000;
 export const QUESTION_MS = 30000;
 export const PRACTICE_PHASES: Phase[] = ['practiceReady', 'practiceOpen', 'practiceAnswer'];
+export const TIE_PHASES: Phase[] = ['tieSetup', 'tieQuestion', 'tieAnswer', 'tieReveal'];
 const HOST_ACTIONS = new Set([
+  'tieClue',
+  'tieJudge',
+  'tieNext',
+  'tieReveal',
   'claim',
   'start',
   'practiceStart',
@@ -89,7 +94,45 @@ function closeQuestion(s: Session) {
   s.remaining = 0;
   s.windowId = undefined;
 }
+function closeTie(s: Session) {
+  s.phase = 'tieReveal';
+  s.tiebreaker!.rounds.at(-1)!.outcome = 'unanswered';
+  s.deadline = undefined;
+  s.answerDeadline = undefined;
+  s.answerRemaining = undefined;
+  s.windowId = undefined;
+  s.remaining = 0;
+}
+function judgeTie(s: Session, correct: boolean, now: number, timedOut = false) {
+  requireThat(s.tiebreaker && s.respondent, 'No tiebreaker player is answering.');
+  const round = s.tiebreaker.rounds.at(-1)!;
+  round.attempts.push({ playerId: s.respondent, correct, at: now, timedOut });
+  s.answerDeadline = undefined;
+  s.answerRemaining = undefined;
+  if (correct) {
+    round.outcome = 'correct';
+    round.winnerId = s.respondent;
+    s.tiebreaker.winnerId = s.respondent;
+    s.phase = 'finished';
+    s.deadline = undefined;
+    s.windowId = undefined;
+  } else {
+    s.attempted.push(s.respondent);
+    s.respondent = undefined;
+    if (s.tiebreaker.playerIds.every((id) => s.attempted.includes(id)) || s.remaining <= 0)
+      closeTie(s);
+    else {
+      s.phase = 'tieQuestion';
+      s.deadline = now + s.remaining;
+      s.windowId = crypto.randomUUID();
+    }
+  }
+}
 function expire(s: Session) {
+  if (s.phase === 'tieQuestion') {
+    closeTie(s);
+    return;
+  }
   if (s.phase === 'question') closeQuestion(s);
   else if (s.phase === 'practiceOpen') {
     s.phase = 'practiceReady';
@@ -110,18 +153,20 @@ export function reconcile(s: Session, now: number) {
   if (
     s.answerDeadline !== undefined &&
     s.answerDeadline <= effectiveNow &&
-    s.phase === 'answering'
+    ['answering', 'tieAnswer'].includes(s.phase)
   ) {
     const at = s.answerDeadline;
     const playerId = s.respondent!;
     const actionId = `timeout:${s.windowId}`;
-    judgeRegular(
-      s,
-      false,
-      { userId: s.hostId, now: at, actionId, expectedVersion: s.actionVersion },
-      true,
-    );
-    s.lastTimeout = { playerId, at };
+    if (s.phase === 'tieAnswer') judgeTie(s, false, at, true);
+    else
+      judgeRegular(
+        s,
+        false,
+        { userId: s.hostId, now: at, actionId, expectedVersion: s.actionVersion },
+        true,
+      );
+    if (!s.tiebreaker) s.lastTimeout = { playerId, at };
     s.processed.push(actionId);
     s.history.push({ actionId, type: 'answerTimeout', userId: s.hostId, at, phase: s.phase });
   }
@@ -257,9 +302,9 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       s.paused = false;
       s.pauseReason = undefined;
       s.hostSeen = ctx.now;
-      if (['question', 'finalAnswer', 'practiceOpen'].includes(s.phase))
+      if (['question', 'finalAnswer', 'practiceOpen', 'tieQuestion'].includes(s.phase))
         s.deadline = ctx.now + s.remaining;
-      if (s.phase === 'answering' && s.answerRemaining !== undefined)
+      if (['answering', 'tieAnswer'].includes(s.phase) && s.answerRemaining !== undefined)
         s.answerDeadline = ctx.now + s.answerRemaining;
       break;
     case 'pause':
@@ -367,7 +412,13 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       break;
     }
     case 'buzz':
-      phase('question', 'practiceOpen');
+      phase('question', 'practiceOpen', 'tieQuestion');
+      if (s.phase === 'tieQuestion')
+        requireThat(
+          s.tiebreaker?.playerIds.includes(ctx.userId),
+          'Only tied leaders can buzz.',
+          403,
+        );
       requireThat(player, 'Player not found.', 403);
       requireThat(cmd.windowId === s.windowId, 'That buzzer window has closed.', 409);
       requireThat(!s.attempted.includes(player.id), 'You already answered this question.');
@@ -378,7 +429,7 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       if (s.phase === 'practiceOpen') {
         s.phase = 'practiceAnswer';
       } else {
-        s.phase = 'answering';
+        s.phase = s.phase === 'tieQuestion' ? 'tieAnswer' : 'answering';
         if ((s.answerLimitSeconds ?? 0) > 0) {
           s.answerRemaining = s.answerLimitSeconds! * 1000;
           s.answerDeadline = ctx.now + s.answerRemaining;
@@ -469,7 +520,54 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
     case 'finish':
       phase('finalReview');
       requireThat(!finalReviewPlayer(s), 'Judge every answer first.');
-      s.phase = 'finished';
+      {
+        const players = activePlayers(s);
+        const high = Math.max(...players.map((p) => p.score));
+        const leaders = players.filter((p) => p.score === high);
+        if (leaders.length > 1) {
+          s.tiebreaker = { playerIds: leaders.map((p) => p.id), rounds: [] };
+          s.phase = 'tieSetup';
+          s.questionId = undefined;
+          s.respondent = undefined;
+          s.windowId = undefined;
+          s.deadline = undefined;
+          s.lastTimeout = undefined;
+          s.undo = undefined;
+        } else s.phase = 'finished';
+      }
+      break;
+    case 'tieClue':
+      phase('tieSetup');
+      requireThat(s.tiebreaker && !s.tiebreaker.winnerId, 'No tiebreaker is pending.');
+      s.tiebreaker.rounds.push({
+        id: crypto.randomUUID(),
+        category: cmd.category,
+        prompt: cmd.prompt,
+        answer: cmd.answer,
+        attempts: [],
+      });
+      s.attempted = [];
+      s.respondent = undefined;
+      s.remaining = QUESTION_MS;
+      s.deadline = ctx.now + QUESTION_MS;
+      s.answerDeadline = undefined;
+      s.answerRemaining = undefined;
+      s.windowId = crypto.randomUUID();
+      s.phase = 'tieQuestion';
+      break;
+    case 'tieJudge':
+      phase('tieAnswer');
+      judgeTie(s, cmd.correct, ctx.now);
+      break;
+    case 'tieReveal':
+      phase('tieQuestion', 'tieAnswer');
+      closeTie(s);
+      break;
+    case 'tieNext':
+      phase('tieReveal');
+      s.phase = 'tieSetup';
+      s.respondent = undefined;
+      s.attempted = [];
       break;
     case 'undo': {
       requireThat(
@@ -570,7 +668,8 @@ export function viewSession(
           id: q.id,
           category: s.board.categories[q.category],
           value: q.value,
-          prompt: s.phase === 'dailyWager' ? 'Daily Double' : q.prompt,
+          prompt:
+            s.phase === 'dailyWager' ? 'Daily Double' : s.phase === 'answering' ? '' : q.prompt,
           answer: revealed || privateHost ? q.answer : undefined,
           notes: privateHost ? q.notes : undefined,
         }
@@ -596,6 +695,27 @@ export function viewSession(
     attempted: s.attempted,
     daily: s.daily,
     events: s.events,
+    tiebreaker: s.tiebreaker
+      ? {
+          playerIds: s.tiebreaker.playerIds,
+          winnerId: s.tiebreaker.winnerId,
+          roundNumber: s.tiebreaker.rounds.length + (s.phase === 'tieSetup' ? 1 : 0),
+          round:
+            s.tiebreaker.rounds.length && s.phase !== 'tieSetup'
+              ? (() => {
+                  const round = s.tiebreaker!.rounds.at(-1)!;
+                  return {
+                    ...round,
+                    prompt: s.phase === 'tieAnswer' ? '' : round.prompt,
+                    answer:
+                      privateHost || s.phase === 'tieReveal' || finalDone
+                        ? round.answer
+                        : undefined,
+                  };
+                })()
+              : undefined,
+        }
+      : undefined,
     canUndo: privateHost && !!s.undo,
   };
 }

@@ -12,7 +12,7 @@ A responsive, self-hostable Jeopardy game for **Next.js + Vercel + Supabase**. T
 - Server-authoritative, atomic first-buzz arbitration and 30-second windows.
 - Correct/incorrect scoring, remaining-time resumption after a miss, one attempt per player per question, and answer reveal.
 - Hidden Daily Double, host-selected participant, and wagers capped at the absolute score.
-- Final Jeopardy category → private wagers → 30-second written answers → individual judging → joint winners if tied.
+- Final Jeopardy category → private wagers → 30-second written answers → individual judging → sudden-death buzzer clues for tied leaders.
 - Animated standings after every question with score changes, moving player rows, and rank movement; reduced-motion preferences are respected.
 - End sessions directly from the host dashboard, unscored practice buzzers, and an optional per-session answer deadline.
 - Persistent sessions, automatic host-disconnect pause, PIN-protected Resume, explicit Continue, and one controlling host tab.
@@ -100,7 +100,7 @@ Taking control in another tab pauses the game and invalidates the previous contr
 - Daily Double and Final wager range: **0 through absolute current/pre-Final score**, whole dollars. A score of zero permits only a zero wager. Negative-score players are eligible.
 - Final: host reveals the category; players save/change private wagers until the host opens the question. Missing wagers default to zero after host confirmation.
 - Final answers autosave at most twice a second, one request at a time. Players may also explicitly Save. **Only text successfully received before the server deadline counts**; unsent keystrokes are not guaranteed. Latest received text locks at expiry; blank answers are incorrect.
-- Final review proceeds from lowest to highest pre-Final score. Answers/wagers become public after each judgment. Highest final score wins; ties produce joint winners.
+- Final review proceeds from lowest to highest pre-Final score. Answers/wagers become public after each judgment. A unique highest final score wins. A tie for first enters sudden death: the host supplies a category/clue/answer, only tied leaders buzz, and only a correct response wins. Misses do not change scores or award a default win. If everyone misses or the 30-second buzzer window expires, reveal the answer and prepare another clue; all tied leaders are eligible again. The optional spoken-answer deadline also applies without score deductions.
 - The host can correct the last regular/Daily Double judgment before another accepted buzz or the next question. The audit history retains the correction action. Final judgments are locked after approval/rejection.
 - Up to 50 player seats per session; intended for casual game nights. See architecture notes before increasing this limit or operating many concurrent rooms.
 
@@ -182,3 +182,11 @@ On a completed or explicitly ended session, the signed-in host can select **Down
 The file includes ranks (equal scores share a rank), player IDs/names, removal status, session ID/code, category, question text, tile value, numeric score changes, running scores and UTC event timestamps. Daily Double/Final wagers are reflected in the applied deltas. Removed players retain their history but receive no final rank. Ended sessions are marked **Ended early**; unplayed board questions and answer text are excluded. CSV quoting handles commas, quotes and multiline names; UTF-8 and formula-like text are handled for spreadsheet use. Players and other hosts cannot download another host's results. No database migration is needed.
 
 Fresh sessions now open the lobby after a single PIN check. The launching tab receives control atomically at creation, using a one-use handoff with no stored PIN. Reloading/reopening the console still requires the existing PIN-protected Resume and explicit Continue flow.
+
+## Sudden death and projector readability
+
+After every Final answer has been judged, a tie changes the host action to **Start sudden-death tiebreaker**. Enter a category, clue and correct response privately, then select **Present clue & open buzzers**. These clues are entered at play time, so existing boards and imported JSON need no changes. Prepare backup clues in advance. There is no dollar value or wager; the first tied leader to buzz and answer correctly wins. Nonleaders watch. A miss excludes that player only for the current clue. If no one succeeds, select **Prepare another clue**; no player wins by default. Final standings, confetti and the results CSV identify the tiebreaker winner while keeping monetary scores unchanged. The CSV also includes tiebreaker responses and unresolved-round summaries, with zero score changes. All accepted tiebreaker state survives host disconnection and PIN-protected resume.
+
+During a regular or tiebreaker buzzed response, the clue is removed from the host and audience payload/display until a miss reopens it or a reveal occurs. Private host answers remain available for judging. Stage-specific action errors clear as play moves to a new stage, question or buzzer window; polling the same stage does not dismiss an applicable validation error.
+
+Use **Audience display** on the projector, rather than exposing private host controls. Larger responsive clue/category/timer/standing text, stronger contrast and wrapping improve distance readability while preserving mobile layouts and scrolling for long clues. No database migration is required.

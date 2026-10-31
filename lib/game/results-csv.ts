@@ -60,9 +60,23 @@ export function resultsCsv(s: Session): string {
   };
   const active = s.players
     .filter((p) => !p.removed)
-    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        Number(b.id === s.tiebreaker?.winnerId) - Number(a.id === s.tiebreaker?.winnerId) ||
+        a.name.localeCompare(b.name) ||
+        a.id.localeCompare(b.id),
+    );
   for (const p of [...active, ...s.players.filter((p) => p.removed)]) {
-    const rank = p.removed ? '' : active.findIndex((other) => other.score === p.score) + 1;
+    const rank = p.removed
+      ? ''
+      : s.tiebreaker?.winnerId && p.id === s.tiebreaker.winnerId
+        ? 1
+        : active.findIndex(
+            (other) =>
+              other.score === p.score &&
+              (!s.tiebreaker?.winnerId || other.id !== s.tiebreaker.winnerId),
+          ) + 1;
     row(
       'Final standing',
       p.id,
@@ -70,7 +84,11 @@ export function resultsCsv(s: Session): string {
       ['', '', '', '', ''],
       '',
       p.score,
-      p.removed ? 'Removed; excluded from ranking' : '',
+      p.removed
+        ? 'Removed; excluded from ranking'
+        : p.id === s.tiebreaker?.winnerId
+          ? 'Won sudden-death tiebreaker'
+          : '',
     );
   }
   // Recover the baseline rather than assuming zero, for compatibility with older saved sessions.
@@ -132,6 +150,32 @@ export function resultsCsv(s: Session): string {
       );
     }
   });
+  for (const [index, round] of (s.tiebreaker?.rounds ?? []).entries()) {
+    const question = [`T${index + 1}`, round.id, round.category, round.prompt, ''];
+    for (const attempt of round.attempts) {
+      const p = s.players.find((p) => p.id === attempt.playerId);
+      if (p)
+        row(
+          'Tiebreaker response',
+          p.id,
+          '',
+          question,
+          0,
+          p.score,
+          attempt.correct
+            ? 'Correct; tiebreaker winner'
+            : attempt.timedOut
+              ? 'Answer time expired; no points deducted'
+              : 'Incorrect; no points deducted',
+          new Date(attempt.at).toISOString(),
+        );
+    }
+    if (!round.winnerId)
+      for (const id of s.tiebreaker!.playerIds) {
+        const p = s.players.find((p) => p.id === id);
+        if (p) row('Tiebreaker summary', id, '', question, 0, p.score, 'No winner on this clue');
+      }
+  }
   // UTF-8 BOM makes names readable when opening directly in Excel.
   return '\uFEFF' + rows.map((r) => r.map(cell).join(',')).join('\r\n') + '\r\n';
 }

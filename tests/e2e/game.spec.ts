@@ -718,3 +718,260 @@ test('player results do not offer the host-only CSV download', async ({ page }) 
   await expect(page.getByRole('heading', { name: 'Alex wins!', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Download results (CSV)' })).toHaveCount(0);
 });
+
+const TIED_OTHER = '55555555-5555-4555-8555-555555555555';
+const SPECTATOR = '66666666-6666-4666-8666-666666666666';
+function tiedFinal() {
+  const s = fixture();
+  s.phase = 'finalReview';
+  s.players = [
+    { id: PLAYER, name: 'Alex', score: 1000, lastSeen: Date.now(), removed: false },
+    { id: TIED_OTHER, name: 'Sam', score: 1000, lastSeen: Date.now(), removed: false },
+    { id: SPECTATOR, name: 'Pat', score: 400, lastSeen: Date.now(), removed: false },
+  ];
+  s.final = Object.fromEntries(
+    s.players.map((p) => [
+      p.id,
+      { score: p.score, wager: 0, text: 'Answer', judged: true, correct: true },
+    ]),
+  );
+  return s;
+}
+async function openControlledHost(page: Page, s: Session) {
+  await page.goto(`/host/session/${s.id}`);
+  await page.getByLabel('Host PIN').fill('123456');
+  await page.getByRole('button', { name: 'Resume / take control' }).click();
+  await page.getByRole('button', { name: 'Continue game', exact: false }).first().click();
+}
+async function simulateBuzz(page: Page, current: () => Session, playerId: string) {
+  const s = current();
+  Object.assign(
+    s,
+    applyCommand(
+      s,
+      { type: 'buzz', windowId: s.windowId! },
+      {
+        userId: playerId,
+        now: Date.now(),
+        actionId: crypto.randomUUID(),
+        expectedVersion: s.actionVersion,
+      },
+    ),
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+}
+async function fillTieClue(page: Page, suffix = '') {
+  await page.getByLabel('Tiebreaker category', { exact: true }).fill('Capital cities');
+  await page
+    .getByLabel('Tiebreaker clue', { exact: true })
+    .fill('This is the capital of France.' + suffix);
+  await page.getByLabel('Tiebreaker answer', { exact: true }).fill('What is Paris?');
+  await page.getByRole('button', { name: 'Present clue & open buzzers' }).click();
+}
+test('tied Final leaders play sudden death and only a correct response wins without changing scores', async ({
+  page,
+}) => {
+  const s = tiedFinal(),
+    current = await mock(page, s);
+  await openControlledHost(page, s);
+  await page.getByRole('button', { name: 'Start sudden-death tiebreaker' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Tied for first. One correct response wins.' }),
+  ).toBeVisible();
+  await expect(page.getByTestId('results-confetti')).toHaveCount(0);
+  await fillTieClue(page);
+  await expect(
+    page.getByRole('heading', { name: 'This is the capital of France.', exact: true }),
+  ).toBeVisible();
+  await simulateBuzz(page, current, PLAYER);
+  await expect(page.getByRole('heading', { name: 'Clue hidden while Alex answers' })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'This is the capital of France.', exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole('button', { name: 'Incorrect', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: 'This is the capital of France.', exact: true }),
+  ).toBeVisible();
+  expect(current().tiebreaker?.winnerId).toBeUndefined();
+  await simulateBuzz(page, current, TIED_OTHER);
+  await page.getByRole('button', { name: 'Correct · wins game', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Sam wins!', exact: true })).toBeVisible();
+  expect(current().players.map((p) => p.score)).toEqual([1000, 1000, 400]);
+  await expect(page.locator('.standing-row').first()).toHaveAttribute('data-player-id', TIED_OTHER);
+});
+test('everyone missing leads to another tiebreaker clue with all tied leaders eligible again', async ({
+  page,
+}) => {
+  const s = applyCommand(
+    tiedFinal(),
+    { type: 'finish' },
+    {
+      userId: HOST,
+      now: Date.now(),
+      controller: CONTROL,
+      actionId: crypto.randomUUID(),
+      expectedVersion: 0,
+    },
+  );
+  const current = await mock(page, s);
+  await openControlledHost(page, s);
+  await fillTieClue(page);
+  for (const id of [PLAYER, TIED_OTHER]) {
+    await simulateBuzz(page, current, id);
+    await page.getByRole('button', { name: 'Incorrect', exact: true }).click();
+  }
+  await expect(
+    page.getByText('No correct response. No winner yet;', { exact: false }),
+  ).toBeVisible();
+  await expect(page.getByTestId('results-confetti')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Prepare another clue' }).click();
+  await fillTieClue(page, ' Second clue');
+  expect(current().tiebreaker?.rounds).toHaveLength(2);
+  expect(current().attempted).toEqual([]);
+  expect(current().tiebreaker?.playerIds).toEqual([PLAYER, TIED_OTHER]);
+});
+for (const eligible of [true, false]) {
+  test(`tiebreaker buzzer is ${eligible ? 'enabled for a leader' : 'disabled for a nonleader'}`, async ({
+    page,
+  }) => {
+    let s = applyCommand(
+      tiedFinal(),
+      { type: 'finish' },
+      {
+        userId: HOST,
+        now: Date.now(),
+        controller: CONTROL,
+        actionId: crypto.randomUUID(),
+        expectedVersion: 0,
+      },
+    );
+    s = applyCommand(
+      s,
+      { type: 'tieClue', category: 'Cities', prompt: 'A capital city.', answer: 'Paris' },
+      {
+        userId: HOST,
+        now: Date.now(),
+        controller: CONTROL,
+        actionId: crypto.randomUUID(),
+        expectedVersion: s.actionVersion,
+      },
+    );
+    const current = await mock(page, s, eligible ? PLAYER : SPECTATOR);
+    await page.goto(`/play/${s.id}`);
+    const buzzer = page.locator('.tie-stage .buzzer');
+    if (eligible) {
+      await expect(buzzer).toBeEnabled();
+      await buzzer.click();
+      await expect(buzzer).toHaveText(/YOU’RE UP!/);
+      expect(current().phase).toBe('tieAnswer');
+    } else {
+      await expect(buzzer).toBeDisabled();
+      await expect(
+        page.getByText('Only the tied leaders can buzz.', { exact: true }),
+      ).toBeVisible();
+    }
+  });
+}
+test('host clue disappears after a buzz and reappears after an incorrect response', async ({
+  page,
+}) => {
+  const s = fixture();
+  s.phase = 'board';
+  s.players.push({ id: TIED_OTHER, name: 'Sam', score: 0, lastSeen: Date.now(), removed: false });
+  const current = await mock(page, s);
+  await openControlledHost(page, s);
+  await page.locator('.board-tile:not(:disabled)').first().click();
+  const prompt = current().board.questions.find((q) => q.id === current().questionId)!.prompt;
+  await expect(page.getByRole('heading', { name: prompt, exact: true })).toBeVisible();
+  await simulateBuzz(page, current, PLAYER);
+  await expect(page.getByRole('heading', { name: prompt, exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Clue hidden while Alex answers' })).toBeVisible();
+  await page.getByRole('button', { name: 'Incorrect', exact: true }).click();
+  expect(current().phase).toBe('question');
+  expect(current().respondent).toBeUndefined();
+  await expect(page.getByRole('heading', { name: prompt, exact: true })).toBeVisible();
+});
+test('stale stage errors clear automatically on the next question without hiding same-stage validation', async ({
+  page,
+}) => {
+  const s = fixture();
+  s.phase = 'question';
+  s.questionId = s.board.questions[0].id;
+  s.windowId = crypto.randomUUID();
+  s.deadline = Date.now() + 30000;
+  const current = await mock(page, s, PLAYER);
+  await page.route(`**/api/sessions/${s.id}/command`, async (route) => {
+    if (route.request().postDataJSON().command.type === 'buzz')
+      return route.fulfill({
+        status: 400,
+        json: { error: 'That action is not available at this stage.' },
+      });
+    return route.fallback();
+  });
+  await page.goto(`/play/${s.id}`);
+  await page.getByRole('button', { name: 'BUZZ!', exact: false }).click();
+  await expect(page.locator('.session-container > p[role="alert"]')).toHaveText(
+    'That action is not available at this stage.',
+  );
+  current().questionId = s.board.questions[1].id;
+  current().windowId = crypto.randomUUID();
+  current().version++;
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.locator('.session-container > p[role="alert"]')).toBeEmpty();
+});
+test('projector view uses large wrapped high-contrast clue text without exposing host answers', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  const s = fixture();
+  s.phase = 'question';
+  s.questionId = s.board.questions[0].id;
+  s.deadline = Date.now() + 30000;
+  s.board.questions[0].prompt = 'A long, readable clue on a large screen. '.repeat(7);
+  await mock(page, s);
+  await page.goto(`/display/${s.id}`);
+  const heading = page.locator('.question-stage > h2');
+  await expect(heading).toBeVisible();
+  expect(
+    await heading.evaluate((el) => parseFloat(getComputedStyle(el).fontSize)),
+  ).toBeGreaterThanOrEqual(50);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await expect(page.locator('.host-answer')).toHaveCount(0);
+});
+
+test('late validation failure from the old question cannot reappear on a new question', async ({
+  page,
+}) => {
+  const s = fixture();
+  s.phase = 'question';
+  s.questionId = s.board.questions[0].id;
+  s.windowId = crypto.randomUUID();
+  s.deadline = Date.now() + 30000;
+  const current = await mock(page, s, PLAYER);
+  let delayed: Route | undefined;
+  await page.route(`**/api/sessions/${s.id}/command`, async (route) => {
+    if (route.request().postDataJSON().command.type === 'buzz') {
+      delayed = route;
+      return;
+    }
+    return route.fallback();
+  });
+  await page.goto(`/play/${s.id}`);
+  await page.getByRole('button', { name: 'BUZZ!', exact: false }).click();
+  await expect.poll(() => !!delayed).toBe(true);
+  current().questionId = s.board.questions[1].id;
+  current().windowId = crypto.randomUUID();
+  current().version++;
+  const recovered = page.waitForResponse((r) => r.url().endsWith(`/api/sessions/${s.id}`));
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await recovered;
+  await settleFrames(page);
+  await delayed!.fulfill({
+    status: 400,
+    json: { error: 'That action is not available at this stage.' },
+  });
+  await expect(page.getByRole('button', { name: 'BUZZ!', exact: false })).toBeEnabled();
+  await expect(page.locator('.session-container > p[role="alert"]')).toBeEmpty();
+});

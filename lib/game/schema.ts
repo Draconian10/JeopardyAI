@@ -97,6 +97,14 @@ export const commandSchema = z.discriminatedUnion('type', [
   action('answer', { text: z.string().max(2000) }),
   action('finalJudge', { playerId: z.string().uuid(), correct: z.boolean() }),
   action('finish', {}),
+  action('tieClue', {
+    category: text(100).min(1),
+    prompt: text(3000).min(1),
+    answer: text(2000).min(1),
+  }),
+  action('tieJudge', { correct: z.boolean() }),
+  action('tieNext', {}),
+  action('tieReveal', {}),
   action('undo', {}),
   action('tick', {}),
 ]);

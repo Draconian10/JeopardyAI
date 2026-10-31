@@ -1,5 +1,7 @@
 import type { SessionView } from './types';
-export function rankedStandings(s: Pick<SessionView, 'players' | 'events' | 'question' | 'phase'>) {
+export function rankedStandings(
+  s: Pick<SessionView, 'players' | 'events' | 'question' | 'phase' | 'tiebreaker'>,
+) {
   const questionId =
     s.question?.id ?? (['finalReview', 'finished'].includes(s.phase) ? 'final' : undefined);
   const events = questionId ? s.events.filter((e) => e.questionId === questionId) : [];
@@ -9,7 +11,12 @@ export function rankedStandings(s: Pick<SessionView, 'players' | 'events' | 'que
       events.filter((e) => e.playerId === p.id).reduce((sum, e) => sum + e.delta, 0),
     ]),
   );
-  const sorted = [...s.players].sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  const sorted = [...s.players].sort(
+    (a, b) =>
+      b.score - a.score ||
+      Number(b.id === s.tiebreaker?.winnerId) - Number(a.id === s.tiebreaker?.winnerId) ||
+      a.name.localeCompare(b.name),
+  );
   const prior = [...s.players].sort(
     (a, b) =>
       b.score - (delta.get(b.id) ?? 0) - (a.score - (delta.get(a.id) ?? 0)) ||

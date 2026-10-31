@@ -4,6 +4,8 @@ import { api, ApiError, configured, supabase } from '@/lib/client';
 import type { SessionView } from '@/lib/game/types';
 import { takeLaunchController } from '@/lib/launch-controller';
 import type { Command } from '@/lib/game/schema';
+const stageKey = (s?: SessionView) =>
+  JSON.stringify([s?.phase, s?.question?.id, s?.tiebreaker?.round?.id, s?.windowId]);
 export function useSession(id: string, role: 'host' | 'player' | 'audience') {
   const [state, setState] = useState<SessionView>();
   const stateRef = useRef<SessionView | undefined>(undefined);
@@ -27,6 +29,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
   }, []);
   const accept = useCallback((next: SessionView, sequence: number) => {
     if (!stateRef.current || next.version >= stateRef.current.version) {
+      if (stageKey(stateRef.current) !== stageKey(next)) setError('');
       stateRef.current = next;
       offset.current = next.serverNow - Date.now();
       setState(next);
@@ -117,6 +120,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
         setError('');
       }
       const sequence = ++requestSequence.current;
+      const actionStage = stageKey(stateRef.current);
       try {
         const next = await api<SessionView>(
           `sessions/${id}/command`,
@@ -135,7 +139,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
         const gameplayError =
           e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 401;
         if (gameplayError) {
-          if (!quiet) setError(e.message);
+          if (!quiet && actionStage === stageKey(stateRef.current)) setError(e.message);
         } else failSync(e, sequence);
         await refresh();
         return false;

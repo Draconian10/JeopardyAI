@@ -46,6 +46,46 @@ async function insertSession(code = '123456') {
   return s;
 }
 describe('PostgreSQL persistence and authorization', () => {
+  it('persists tiebreaker rounds and winner atomically while keeping the session active until a correct response', async () => {
+    const s = await insertSession('777551');
+    s.version = 1;
+    s.phase = 'tieAnswer';
+    s.tiebreaker = {
+      playerIds: [PLAYER],
+      rounds: [
+        {
+          id: crypto.randomUUID(),
+          category: 'Cities',
+          prompt: 'A capital',
+          answer: 'Paris',
+          attempts: [],
+        },
+      ],
+    };
+    const first = await pg.query<{ ok: boolean }>('select public.commit_session($1,$2,$3) as ok', [
+      s.id,
+      0,
+      JSON.stringify(s),
+    ]);
+    expect(first.rows[0].ok).toBe(true);
+    const loaded = await pg.query<{ state: typeof s; active: boolean }>(
+      'select state,active from public.sessions where id=$1',
+      [s.id],
+    );
+    expect(loaded.rows[0].active).toBe(true);
+    expect(loaded.rows[0].state.tiebreaker?.rounds[0].answer).toBe('Paris');
+    s.version = 2;
+    s.phase = 'finished';
+    s.tiebreaker.winnerId = PLAYER;
+    await pg.query('select public.commit_session($1,$2,$3)', [s.id, 1, JSON.stringify(s)]);
+    const finished = await pg.query<{ state: typeof s; active: boolean }>(
+      'select state,active from public.sessions where id=$1',
+      [s.id],
+    );
+    expect(finished.rows[0].active).toBe(false);
+    expect(finished.rows[0].state.tiebreaker?.winnerId).toBe(PLAYER);
+  });
+
   it('allows one winner for competing compare-and-swap commits and persists membership', async () => {
     const s = await insertSession();
     const one = applyCommand(

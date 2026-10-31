@@ -41,7 +41,15 @@ stateDiagram-v2
   Reveal --> FinalWager: Board complete
   FinalWager --> FinalAnswer: Host locks wagers
   FinalAnswer --> FinalReview: 30 seconds expire
-  FinalReview --> Finished: Every answer judged
+  FinalReview --> Finished: Unique leader
+  FinalReview --> TieSetup: Leaders tied after judging
+  TieSetup --> TieQuestion: Host presents clue
+  TieQuestion --> TieAnswer: Eligible leader buzzes
+  TieAnswer --> TieQuestion: Miss with time and eligible players
+  TieQuestion --> TieReveal: Time expires
+  TieAnswer --> TieReveal: All missed
+  TieReveal --> TieSetup: Another clue
+  TieAnswer --> Finished: Correct response
 ```
 
 Pause is an independent flag, preserving the underlying phase. Explicit End transitions any unfinished phase to `ended`. Finished/ended sessions are historical records.
@@ -91,3 +99,11 @@ Final confetti is a client-only canvas overlay with bounded particle count, capp
 The launch request carries a validated controller UUID alongside its existing idempotent request ID. After PIN verification, `createSession` includes that controller in the state passed to the atomic `launch_session` transaction. Retries return the existing session ID without changing control or pausing the session. The client hands the UUID to the destination console once using session storage (with an in-memory navigation fallback), consumes/removes it on mount, and waits for controller initialization before fetching host state. Reloads create a fresh UUID and retain the claim/PIN/Continue protection; Strict Mode effect replay retains the same initialized controller. The host PIN is never stored in this handoff.
 
 `GET /api/sessions/:id/results` requires a permanent authenticated host, exact stored host ownership, and a finished/ended phase. It returns a private, noncached CSV attachment built from persisted players, played questions and the surviving score event ledger. Undo removes superseded score events, so exports follow corrected scores rather than replaying the action audit. Questions with no score events still get zero-change summaries; removed players are included without a rank. Event order and cumulative scores are preserved; text cells are quoted and formula-like strings neutralized while numeric negative scores remain numeric. The export does not serialize private state, PIN hashes, answers or unrevealed board questions, and needs no controller claim or database migration.
+
+## Sudden-death state and display scopes
+
+`finish` after complete Final review snapshots the tied active leaders into `tiebreaker.playerIds` and enters `tieSetup` when necessary. Host-authored clues are strictly validated, privately stored in the durable session, and opened through `tieClue`. `buzz` reuses atomic CAS/window arbitration but permits only those leaders and records one attempt per clue. `tieJudge` records an attempt without a ScoreEvent or money change; only a correct judgment sets the persistent winner and `finished`. All misses/time expiry enter `tieReveal`; `tieNext` keeps every original tied leader eligible for the new clue. Host reveal can abandon a clue without declaring a winner. Clue and optional answer clocks freeze on pause/claim and reconcile with the existing host-loss boundary; answer timeout is a miss without a deduction. Resume, CSV, ranking, winner display and confetti honor the saved tiebreaker outcome. Existing terminal sessions remain historical; new ties use sudden death.
+
+`viewSession` omits clue text during regular/tiebreaker answering and excludes private tiebreaker answers from players/audience before reveal. Only the current round is projected; preparing the next clue does not leak previous private round data. No unrevealed tiebreaker answer is broadcast.
+
+Action errors are scoped to phase, question ID, current tiebreaker round and buzzer window. Accepting a newer stage clears errors; late action failures from the old scope are ignored. Successful synchronization of the same stage still preserves applicable validation errors. Projection typography uses responsive sizes and wrapping rather than clipping or shrinking long clues to unreadable text.

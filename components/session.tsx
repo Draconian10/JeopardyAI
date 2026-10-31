@@ -29,8 +29,9 @@ import { useSession } from './use-session';
 import Standings from './standings';
 import DownloadResults from './download-results';
 import ResultsConfetti from './results-confetti';
+import Tiebreaker from './tiebreaker';
 import PracticeRound from './practice-round';
-import { PRACTICE_PHASES } from '@/lib/game/engine';
+import { PRACTICE_PHASES, TIE_PHASES } from '@/lib/game/engine';
 import type { SessionView } from '@/lib/game/types';
 export default function GameSession({
   id,
@@ -106,7 +107,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
       sound &&
       s &&
       previousPhase.current !== s.phase &&
-      ['answering', 'question', 'reveal'].includes(s.phase)
+      ['answering', 'question', 'reveal', 'tieQuestion', 'tieAnswer', 'tieReveal'].includes(s.phase)
     ) {
       try {
         const audio = new AudioContext();
@@ -115,7 +116,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
         oscillator.connect(gain);
         gain.connect(audio.destination);
         gain.gain.value = 0.08;
-        oscillator.frequency.value = s.phase === 'answering' ? 740 : 440;
+        oscillator.frequency.value = ['answering', 'tieAnswer'].includes(s.phase) ? 740 : 440;
         oscillator.start();
         oscillator.stop(audio.currentTime + 0.12);
         oscillator.onended = () => void audio.close();
@@ -131,7 +132,8 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
     connected &&
     !busy &&
     !s.paused &&
-    ['question', 'practiceOpen'].includes(s.phase) &&
+    ['question', 'practiceOpen', 'tieQuestion'].includes(s.phase) &&
+    (s.phase !== 'tieQuestion' || !!s.tiebreaker?.playerIds.includes(userId)) &&
     remaining > 0 &&
     !s.attempted.includes(userId);
   useEffect(() => {
@@ -161,7 +163,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
         </Link>
       </div>
     );
-  const answerClock = s.phase === 'answering' && answerRemaining !== undefined;
+  const answerClock = ['answering', 'tieAnswer'].includes(s.phase) && answerRemaining !== undefined;
   const seconds = Math.ceil((answerClock ? answerRemaining : remaining)! / 1000);
   const answering = s.players.find((p) => p.id === s.respondent);
   const daily = s.players.find((p) => p.id === s.daily?.playerId);
@@ -227,20 +229,31 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
         {s.phase === 'finished'
           ? (() => {
               const high = Math.max(...s.players.map((p) => p.score));
-              const winners = s.players.filter((p) => p.score === high);
+              const winners = s.players.filter((p) =>
+                s.tiebreaker?.winnerId ? p.id === s.tiebreaker.winnerId : p.score === high,
+              );
               return `${winners.map((p) => p.name).join(' & ')} ${winners.length > 1 ? 'win!' : 'wins!'}`;
             })()
           : 'Thanks for playing.'}
       </h1>
       <p className="muted">
         {s.phase === 'finished'
-          ? 'Final standings are confirmed. Congratulations!'
+          ? s.tiebreaker?.winnerId
+            ? 'Decided by a sudden-death tiebreaker. Final scores stay unchanged.'
+            : 'Final standings are confirmed. Congratulations!'
           : 'Your game history has been saved.'}
       </p>
       {s.finalAnswer && (
         <div className="answer-reveal">
           <small>FINAL JEOPARDY ANSWER</small>
           <h2>{s.finalAnswer}</h2>
+        </div>
+      )}
+      {s.tiebreaker?.winnerId && s.tiebreaker.round && (
+        <div className="answer-reveal">
+          <small>WINNING TIEBREAKER · {s.tiebreaker.round.category}</small>
+          <h2>{s.tiebreaker.round.prompt}</h2>
+          <p>{s.tiebreaker.round.answer}</p>
         </div>
       )}
       <Standings s={s} />
@@ -477,6 +490,19 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                 </small>
               </div>
             )}
+            {TIE_PHASES.includes(s.phase) && (
+              <Tiebreaker
+                s={s}
+                player={player}
+                host={host}
+                userId={userId}
+                control={!!control}
+                busy={busy}
+                canBuzz={canBuzz}
+                timer={timer}
+                send={send}
+              />
+            )}
             {PRACTICE_PHASES.includes(s.phase) && (
               <PracticeRound
                 s={s}
@@ -585,7 +611,11 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                     </span>
                     {timer}
                   </div>
-                  <h2>{s.question?.prompt}</h2>
+                  <h2 className={s.phase === 'answering' ? 'clue-hidden' : undefined}>
+                    {s.phase === 'answering'
+                      ? `Clue hidden while ${answering?.name} answers`
+                      : s.question?.prompt}
+                  </h2>
                   {s.phase === 'answering' ? (
                     <div className="respondent">
                       <span className="player-avatar">{answering?.name[0]}</span>
@@ -933,7 +963,12 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                         disabled={busy || s.paused}
                         onClick={() => void send({ type: 'finish' })}
                       >
-                        Announce the winner <Trophy size={18} />
+                        {s.players.filter(
+                          (p) => p.score === Math.max(...s.players.map((p) => p.score)),
+                        ).length > 1
+                          ? 'Start sudden-death tiebreaker'
+                          : 'Announce the winner'}{' '}
+                        <Trophy size={18} />
                       </button>
                     )}
                   </>

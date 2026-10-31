@@ -2424,3 +2424,190 @@ input[type='checkbox'] {
   align-items: start;
   gap: 12px;
 }
+
+/* Readable from a distance, while retaining mobile wrapping and vertical scrolling. */
+.session-container .category {
+  font-size: clamp(15px, 1.25vw, 23px);
+  line-height: 1.4;
+  color: #fff;
+  overflow-wrap: anywhere;
+}
+.session-container .board-tile {
+  font-size: clamp(27px, 2.6vw, 46px);
+}
+.session-container .question-stage > h2 {
+  font-size: clamp(28px, 2.8vw, 48px);
+  line-height: 1.4;
+  letter-spacing: -0.025em;
+}
+.session-container .question-top > .eyebrow {
+  font-size: clamp(15px, 1.2vw, 22px);
+  line-height: 1.5;
+  letter-spacing: 0.08em;
+}
+.session-container .timer > span {
+  font-size: clamp(30px, 2.6vw, 46px);
+}
+.session-container .question-stage .muted {
+  color: #ddd3e9;
+}
+.session-container .host-answer small {
+  color: #eee4f5;
+  line-height: 1.6;
+}
+.session-container .clue-hidden {
+  color: #eee4f5;
+  font-weight: 600;
+}
+.tie-stage {
+  gap: 16px;
+}
+.tie-contenders {
+  font-size: clamp(20px, 1.8vw, 30px);
+  font-weight: 700;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.tie-rules {
+  color: #f0dfb5;
+  text-align: center;
+  font-size: 18px;
+  line-height: 1.5;
+}
+.tie-form {
+  display: grid;
+  gap: 16px;
+  width: min(100%, 760px);
+  margin-inline: auto;
+}
+.tie-form label {
+  display: grid;
+  gap: 8px;
+  color: #fff;
+}
+.tie-stage .buzzer {
+  margin-inline: auto;
+}
+.tie-stage .answer-reveal h3 {
+  font-size: clamp(26px, 2.5vw, 42px);
+}
+@media (min-width: 900px) {
+  .audience-container {
+    max-width: 1920px;
+  }
+  .audience-container .question-stage {
+    min-height: 58vh;
+    padding: clamp(24px, 2.2vw, 48px);
+  }
+  .audience-container .question-stage > h2 {
+    font-size: clamp(38px, 3vw, 56px);
+    line-height: 1.4;
+  }
+  .audience-container .category {
+    font-size: clamp(18px, 1.4vw, 28px);
+  }
+  .audience-container .board-tile {
+    font-size: clamp(32px, 3vw, 56px);
+    min-height: 110px;
+  }
+  .audience-container .standings {
+    font-size: 18px;
+  }
+}
+@media (max-width: 600px) {
+  .session-container .category {
+    font-size: 15px;
+  }
+  .tie-rules {
+    font-size: 16px;
+  }
+}
+.session-container .host-answer {
+  font-size: 17px;
+}
+.session-container .host-answer summary {
+  font-size: 16px;
+  color: #eee4f5;
+}
+.session-container .host-answer small {
+  font-size: 15px;
+}
+.session-container .standing-row {
+  font-size: 16px;
+  line-height: 1.5;
+}
+.session-container .standing-score small,
+.session-container .standing-name small {
+  font-size: 12px;
+}
+@media (min-width: 900px) {
+  .audience-container .standing-row {
+    font-size: clamp(18px, 1.2vw, 24px);
+  }
+  .audience-container .rank {
+    font-size: 18px;
+  }
+  .audience-container .host-game-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 22%);
+  }
+}
+@media (min-width: 900px) {
+  .audience-container .timer small {
+    font-size: 14px;
+  }
+  .audience-container .buzz-open {
+    font-size: 20px;
+  }
+  .audience-container .respondent {
+    font-size: 24px;
+  }
+  .audience-container .question-stage .answer-reveal small {
+    font-size: 16px;
+    color: #f1d698;
+  }
+  .audience-container .answer-reveal h2 {
+    font-size: clamp(32px, 3vw, 56px);
+    line-height: 1.4;
+  }
+}
+
+.session-container .reveal-stage > p {
+  font-size: 19px;
+  line-height: 1.6;
+  color: #62546f;
+  overflow-wrap: anywhere;
+}
+.session-container .reveal-stage > h2 {
+  font-size: clamp(30px, 3vw, 52px);
+  overflow-wrap: anywhere;
+}
+.session-container .celebration .answer-reveal > small {
+  color: #715529;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.session-container .celebration .answer-reveal > p {
+  color: #564366;
+  font-size: 20px;
+  line-height: 1.5;
+  margin-top: 12px;
+}
+@media (min-width: 900px) {
+  .audience-container .reveal-stage > p {
+    font-size: clamp(24px, 2vw, 36px);
+  }
+  .audience-container .reveal-stage > h2 {
+    font-size: clamp(40px, 3.5vw, 68px);
+  }
+}
+.session-container .question-stage > .eyebrow {
+  color: #f1cd7a;
+  font-size: clamp(14px, 1.2vw, 20px);
+  line-height: 1.5;
+  letter-spacing: 0.1em;
+}
+@media (min-width: 900px) {
+  .audience-container .standings .section-line h2 {
+    font-size: 24px;
+  }
+}
