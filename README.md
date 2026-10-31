@@ -153,3 +153,7 @@ Engine tests use deterministic clocks. Database tests execute the actual migrati
 - Heartbeat throttling when a host browser is suspended can pause the game. Returning and continuing is safe.
 - Monitor Supabase database/Realtime and Vercel usage. Full session state is read for authorized snapshots; the notification channel carries version numbers only. This intentionally prioritizes durable correctness and straightforward deployment over high-scale esports performance.
 - Rate-limit rows contain HMAC-hashed identifiers. You may periodically delete `rate_limits` rows whose `window_start` is older than one day. Never delete unfinished sessions as part of that maintenance.
+
+## Returning as a player
+
+Going Home does not remove a player from their session. Home and Join Game show **Return to game** for unfinished sessions belonging to the currently signed-in player. This survives page refreshes and restores the existing player seat and score without entering the code/name again. Finished/ended sessions and removed players are excluded. The lookup uses authenticated server-side membership checks and returns only safe session summaries. Guest recovery requires the same browser profile's retained authentication storage; no additional database migration is needed.

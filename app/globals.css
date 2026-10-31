@@ -2247,3 +2247,56 @@ input[type='checkbox'] {
 .json-import-panel > p {
   margin: 16px 0 0;
 }
+
+.player-return {
+  text-align: left;
+  margin: 0 auto 24px;
+  max-width: 840px;
+}
+.player-return > .eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.player-return-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  padding: 12px 0;
+}
+.player-return-row + .player-return-row {
+  border-top: 1px solid var(--line);
+}
+.player-return-row h2 {
+  font-size: 19px;
+  margin-bottom: 6px;
+  overflow-wrap: anywhere;
+}
+.player-return-row p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.player-return-row > .button {
+  flex-shrink: 0;
+}
+.join-game-options {
+  min-width: 0;
+}
+.join-game-options .player-return {
+  padding: 22px;
+}
+.join-game-options .player-return-row {
+  flex-wrap: wrap;
+}
+@media (max-width: 560px) {
+  .player-return {
+    padding: 22px;
+  }
+  .player-return-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

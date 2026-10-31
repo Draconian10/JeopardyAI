@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomInt } from 'node:crypto';
+import { playerSessionSummary } from '@/lib/game/player-sessions';
+import type { Session } from '@/lib/game/types';
 import { parseQuestionJson, MAX_QUESTION_JSON_LENGTH } from '@/lib/game/question-json';
 import { z } from 'zod';
 import { db, hashPin, verifyPin, identity, hostOnly, limit } from '@/lib/server/db';
@@ -31,6 +33,31 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
     const [resource, id, op] = path;
     if (path.length > 3) throw new GameError('Route not found.', 404);
     const database = db();
+    if (resource === 'player-sessions' && req.method === 'GET' && !id) {
+      const { data: memberships, error: membershipError } = await database
+        .from('session_members')
+        .select('session_id')
+        .eq('user_id', user.id);
+      if (membershipError) throw new GameError('Could not load your active games.', 503);
+      if (!memberships.length) return NextResponse.json({ sessions: [] });
+      const { data: rows, error } = await database
+        .from('sessions')
+        .select('state')
+        .in(
+          'id',
+          memberships.map((m) => m.session_id),
+        )
+        .eq('active', true)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      if (error) throw new GameError('Could not load your active games.', 503);
+      return NextResponse.json({
+        sessions: rows.flatMap((row) => {
+          const summary = playerSessionSummary(row.state as Session, user.id);
+          return summary ? [summary] : [];
+        }),
+      });
+    }
     if (resource === 'games') {
       hostOnly(user);
       if (req.method === 'GET' && !id) {

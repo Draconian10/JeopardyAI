@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { ArrowRight, Zap, Users } from 'lucide-react';
 import { api, configured, supabase } from '@/lib/client';
 import { SetupNotice } from './auth';
+import PlayerGames from './player-games';
 export default function Join() {
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
@@ -33,63 +34,66 @@ export default function Join() {
           We’ll save you a spot in the lobby.
         </p>
       </div>
-      <form
-        className="panel join-form"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setBusy(true);
-          setError('');
-          try {
-            const { data } = await supabase().auth.getSession();
-            if (!data.session) {
-              const result = await supabase().auth.signInAnonymously();
-              if (result.error) throw result.error;
+      <div className="join-game-options">
+        <PlayerGames />
+        <form
+          className="panel join-form"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setBusy(true);
+            setError('');
+            try {
+              const { data } = await supabase().auth.getSession();
+              if (!data.session) {
+                const result = await supabase().auth.signInAnonymously();
+                if (result.error) throw result.error;
+              }
+              const result = await api<{ id: string }>('join', 'POST', { code, name });
+              router.push(`/play/${result.id}`);
+            } catch (e) {
+              setError((e as Error).message);
+            } finally {
+              setBusy(false);
             }
-            const result = await api<{ id: string }>('join', 'POST', { code, name });
-            router.push(`/play/${result.id}`);
-          } catch (e) {
-            setError((e as Error).message);
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <label>
-          GAME CODE
-          <input
-            className="code-input"
-            inputMode="numeric"
-            pattern="[0-9]{6}"
-            maxLength={6}
-            autoComplete="off"
-            value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-            placeholder="000000"
-            required
-          />
-        </label>
-        <label>
-          Your name
-          <input
-            autoComplete="nickname"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            maxLength={24}
-            required
-            placeholder="What should we call you?"
-          />
-        </label>
-        <p className="error" role="alert">
-          {error}
-        </p>
-        <button className="button primary full" disabled={busy}>
-          {busy ? 'Finding your seat…' : 'Join the game'}
-          <ArrowRight size={18} />
-        </button>
-        <p className="form-footnote">
-          <Users size={15} /> No account needed. Just a little confidence.
-        </p>
-      </form>
+          }}
+        >
+          <label>
+            GAME CODE
+            <input
+              className="code-input"
+              inputMode="numeric"
+              pattern="[0-9]{6}"
+              maxLength={6}
+              autoComplete="off"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+              placeholder="000000"
+              required
+            />
+          </label>
+          <label>
+            Your name
+            <input
+              autoComplete="nickname"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              maxLength={24}
+              required
+              placeholder="What should we call you?"
+            />
+          </label>
+          <p className="error" role="alert">
+            {error}
+          </p>
+          <button className="button primary full" disabled={busy}>
+            {busy ? 'Finding your seat…' : 'Join the game'}
+            <ArrowRight size={18} />
+          </button>
+          <p className="form-footnote">
+            <Users size={15} /> No account needed. Just a little confidence.
+          </p>
+        </form>
+      </div>
     </div>
   );
 }

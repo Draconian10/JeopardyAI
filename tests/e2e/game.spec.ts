@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { applyCommand, createSession, viewSession } from '../../lib/game/engine';
 import { starterBoard } from '../../lib/game/starter';
+import { playerSessionSummary } from '../../lib/game/player-sessions';
 import { parseQuestionJson, QUESTION_JSON_EXAMPLE } from '../../lib/game/question-json';
 import type { Session } from '../../lib/game/types';
 const HOST = '11111111-1111-4111-8111-111111111111',
@@ -55,6 +56,10 @@ async function mock(page: Page, initial: Session, userId = HOST) {
     const request = route.request();
     const url = new URL(request.url());
     let controller = request.headers()['x-controller'];
+    if (url.pathname === '/api/player-sessions') {
+      const summary = playerSessionSummary(s, userId);
+      return route.fulfill({ json: { sessions: summary ? [summary] : [] } });
+    }
     if (url.pathname === '/api/games/import') {
       try {
         return route.fulfill({ json: { board: parseQuestionJson(request.postDataJSON().text) } });
@@ -246,4 +251,42 @@ test('canceling a JSON import preserves the existing board', async ({ page }) =>
   await page.getByRole('button', { name: 'Validate & apply JSON' }).click();
   await expect(page.getByLabel('Game title', { exact: true })).toHaveValue(s.title);
   await expect(page.locator('.board-tile')).toHaveCount(30);
+});
+
+test('player can return from Home after a refresh without rejoining or losing their score', async ({
+  page,
+}) => {
+  const s = fixture();
+  s.phase = 'board';
+  s.players[0].score = 800;
+  const current = await mock(page, s, PLAYER);
+  await page.goto(`/play/${s.id}`);
+  await page.getByRole('link', { name: 'Home', exact: true }).click();
+  await expect(page.getByRole('link', { name: 'Return to game' })).toHaveAttribute(
+    'href',
+    `/play/${s.id}`,
+  );
+  await page.reload();
+  await page.getByRole('link', { name: 'Return to game' }).click();
+  await expect(page.getByRole('heading', { name: 'Let’s go, Alex.' })).toBeVisible();
+  await expect(page.locator('.personal-score strong')).toHaveText('$800');
+  expect(current().players).toHaveLength(1);
+  expect(current().players[0].score).toBe(800);
+});
+
+test('Join Game also offers a direct return for an existing player', async ({ page }) => {
+  const s = fixture();
+  await mock(page, s, PLAYER);
+  await page.goto('/join');
+  await page.getByRole('link', { name: 'Return to game' }).click();
+  await expect(page.getByRole('heading', { name: 'You’ve got a seat.' })).toBeVisible();
+});
+
+test('ended sessions do not show a player return link', async ({ page }) => {
+  const s = fixture();
+  s.phase = 'ended';
+  await mock(page, s, PLAYER);
+  await page.goto('/');
+  await expect(page.getByRole('link', { name: 'Join a game' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Return to game' })).toHaveCount(0);
 });

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import PlayerGames from '@/components/player-games';
 import { ArrowRight, Monitor, Smartphone, Radio, Trophy, Sparkles } from 'lucide-react';
 export default function Home() {
   return (
@@ -16,6 +17,7 @@ export default function Home() {
         <br />
         Bring everyone together for a game night worth talking about.
       </p>
+      <PlayerGames />
       <div className="entry-grid">
         <Link href="/host" className="entry-card host-card">
           <span className="card-icon">
