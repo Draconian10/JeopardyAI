@@ -26,6 +26,9 @@ import {
 import { HostAuth, SetupNotice } from './auth';
 import { configured, money } from '@/lib/client';
 import { useSession } from './use-session';
+import KeepAwake from './keep-awake';
+import FinalSubmissions from './final-submissions';
+import { finalSubmissionStatus } from '@/lib/game/final-submissions';
 import Standings from './standings';
 import DownloadResults from './download-results';
 import ResultsConfetti from './results-confetti';
@@ -276,6 +279,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
           {host ? 'Your games' : 'Home'}
         </Link>
         <div className="button-row">
+          {!audience && !ended && <KeepAwake key={id} />}
           <span className={`connection ${connected ? '' : 'offline'}`}>
             {connected ? <Wifi size={13} /> : <WifiOff size={13} />}{' '}
             {connected ? 'Connected' : 'Reconnecting'}
@@ -834,6 +838,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                 )}
               </section>
             )}
+            {host && ['finalAnswer', 'finalReview'].includes(s.phase) && <FinalSubmissions s={s} />}
             {s.phase === 'finalAnswer' && (
               <section className="question-stage final-stage">
                 <div className="question-top">
@@ -906,7 +911,8 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                         <div className="answer-reveal">
                           <small>SUBMITTED ANSWER</small>
                           <h3>
-                            {s.finalEntries[current.id]?.text?.trim() || '(No answer submitted)'}
+                            {s.finalEntries[current.id]?.text?.trim() ||
+                              finalSubmissionStatus(s.finalEntries[current.id])}
                           </h3>
                           <p>Wager: {money(s.finalEntries[current.id]?.wager ?? 0)}</p>
                         </div>

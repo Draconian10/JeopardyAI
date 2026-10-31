@@ -241,7 +241,7 @@ test('Final Jeopardy draft is saved and kept on the server', async ({ page }) =>
   await page.goto(`/play/${s.id}`);
   await page.getByLabel('Your answer', { exact: true }).fill('The Taj Mahal');
   await expect.poll(() => current().final[PLAYER].text).toBe('The Taj Mahal');
-  await expect(page.getByRole('status')).toContainText('Saved');
+  await expect(page.locator('.player-game form [role="status"]')).toContainText('Saved');
 });
 test('audience view never displays private host answers', async ({ page }) => {
   const s = fixture();
@@ -1118,3 +1118,213 @@ test('previous games retain their session titles after the board is renamed', as
   await history.getByRole('link').filter({ hasText: 'Round 1' }).click();
   await expect(page.locator('.live-heading h1')).toHaveText('Round 1');
 });
+
+declare global {
+  interface Window {
+    awakeTest: {
+      requests: number;
+      releases: number;
+      hidden: boolean;
+      mode: 'ok' | 'deny' | 'pending';
+      resolve?: () => void;
+      revoke: () => void;
+    };
+  }
+}
+async function mockWakeLock(page: Page, mode: 'ok' | 'deny' | 'pending' | 'unsupported' = 'ok') {
+  await page.addInitScript(
+    ({ mode }) => {
+      window.awakeTest = {
+        requests: 0,
+        releases: 0,
+        hidden: false,
+        mode: mode === 'unsupported' ? 'ok' : mode,
+        revoke: () => {},
+      };
+      Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        get: () => (window.awakeTest.hidden ? 'hidden' : 'visible'),
+      });
+      class Sentinel extends EventTarget {
+        released = false;
+        async release() {
+          if (!this.released) {
+            this.released = true;
+            window.awakeTest.releases++;
+            this.dispatchEvent(new Event('release'));
+          }
+        }
+      }
+      Object.defineProperty(navigator, 'wakeLock', {
+        configurable: true,
+        value:
+          mode === 'unsupported'
+            ? undefined
+            : {
+                request: async () => {
+                  window.awakeTest.requests++;
+                  if (window.awakeTest.mode === 'deny') throw new Error('NotAllowedError');
+                  const sentinel = new Sentinel();
+                  window.awakeTest.revoke = () => {
+                    void sentinel.release();
+                  };
+                  if (window.awakeTest.mode === 'pending')
+                    await new Promise<void>((resolve) => {
+                      window.awakeTest.resolve = resolve;
+                    });
+                  return sentinel;
+                },
+              },
+      });
+    },
+    { mode },
+  );
+}
+test('player wake lock activates, reacquires after visibility changes, and releases when disabled', async ({
+  page,
+}) => {
+  const s = fixture();
+  await mock(page, s, PLAYER);
+  await mockWakeLock(page);
+  await page.goto(`/play/${s.id}`);
+  const control = page.getByRole('button', { name: 'Keep screen awake', exact: true });
+  await control.click();
+  await expect(page.locator('.awake-status')).toHaveText('Active');
+  await page.evaluate(() => {
+    window.awakeTest.hidden = true;
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect(page.locator('.awake-status')).toContainText('Waiting');
+  await page.evaluate(() => {
+    window.awakeTest.hidden = false;
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect(page.locator('.awake-status')).toHaveText('Active');
+  expect(await page.evaluate(() => window.awakeTest.requests)).toBe(2);
+  await control.click();
+  await expect(page.locator('.awake-status')).toHaveText('Off');
+  expect(await page.evaluate(() => window.awakeTest.releases)).toBe(2);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+});
+test('host wake lock reports OS release and can retry without pausing gameplay', async ({
+  page,
+}) => {
+  const s = fixture();
+  const current = await mock(page, s);
+  await mockWakeLock(page);
+  await openControlledHost(page, s);
+  await page.getByRole('button', { name: 'Keep screen awake', exact: true }).click();
+  await expect(page.locator('.awake-status')).toHaveText('Active');
+  await page.evaluate(() => window.awakeTest.revoke());
+  await expect(page.locator('.awake-status')).toContainText('Released by device');
+  await page.getByRole('button', { name: 'Keep screen awake', exact: true }).click();
+  await expect(page.locator('.awake-status')).toHaveText('Active');
+  expect(current().paused).toBe(false);
+  await page.getByRole('link', { name: 'Your games', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.awakeTest.releases)).toBe(2);
+});
+test('wake lock denial is retryable and unsupported devices get a clear fallback', async ({
+  page,
+}) => {
+  const s = fixture();
+  await mock(page, s, PLAYER);
+  await mockWakeLock(page, 'deny');
+  await page.goto(`/play/${s.id}`);
+  await page.getByRole('button', { name: 'Keep screen awake', exact: true }).click();
+  await expect(page.locator('.awake-status')).toContainText('Unavailable');
+  await page.evaluate(() => {
+    window.awakeTest.mode = 'ok';
+  });
+  await page.getByRole('button', { name: 'Keep screen awake', exact: true }).click();
+  await expect(page.locator('.awake-status')).toHaveText('Active');
+  await mockWakeLock(page, 'unsupported');
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Keep screen awake', exact: true })).toHaveCount(0);
+  await expect(page.locator('.awake-status')).toContainText('Extend your device');
+});
+test('a cancelled pending wake lock is released when the browser eventually grants it', async ({
+  page,
+}) => {
+  const s = fixture();
+  await mock(page, s, PLAYER);
+  await mockWakeLock(page, 'pending');
+  await page.goto(`/play/${s.id}`);
+  const control = page.getByRole('button', { name: 'Keep screen awake', exact: true });
+  await control.click();
+  await expect(page.locator('.awake-status')).toContainText('Requesting');
+  await control.click();
+  await expect(page.locator('.awake-status')).toHaveText('Off');
+  await page.evaluate(() => window.awakeTest.resolve?.());
+  await expect.poll(() => page.evaluate(() => window.awakeTest.releases)).toBe(1);
+  await expect(page.locator('.awake-status')).toHaveText('Off');
+});
+test('ending the session releases an active screen wake lock', async ({ page }) => {
+  const s = fixture();
+  const current = await mock(page, s, PLAYER);
+  await mockWakeLock(page);
+  await page.goto(`/play/${s.id}`);
+  await page.getByRole('button', { name: 'Keep screen awake', exact: true }).click();
+  await expect(page.locator('.awake-status')).toHaveText('Active');
+  current().phase = 'ended';
+  current().version++;
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByRole('heading', { name: 'Thanks for playing.' })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.awakeTest.releases)).toBe(1);
+});
+function submissionFixture() {
+  const s = tiedFinal();
+  s.phase = 'finalAnswer';
+  s.deadline = Date.now() + 30000;
+  s.final[PLAYER] = {
+    score: 1000,
+    wager: 100,
+    text: 'Secret saved response',
+    submittedAt: Date.now(),
+  };
+  s.final[TIED_OTHER] = { score: 1000, wager: 100, text: '', submittedAt: Date.now() };
+  s.final[SPECTATOR] = { score: 400, wager: 0, text: '' };
+  return s;
+}
+test('host sees live received, blank and missing Final submissions separately from judging', async ({
+  page,
+}) => {
+  const s = submissionFixture(),
+    current = await mock(page, s);
+  await openControlledHost(page, s);
+  const overview = page.getByRole('region', { name: 'Final answer submissions' });
+  await expect(overview.getByRole('heading', { name: '1 of 3 answers saved' })).toBeVisible();
+  await expect(overview).toContainText('Blank answer saved');
+  await expect(overview).toContainText('No answer received');
+  await expect(overview.getByText('Secret saved response', { exact: true })).toHaveCount(0);
+  current().final[SPECTATOR].text = 'Another response';
+  current().final[SPECTATOR].submittedAt = Date.now();
+  current().version++;
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(overview.getByRole('heading', { name: '2 of 3 answers saved' })).toBeVisible();
+  current().phase = 'finalReview';
+  current().deadline = undefined;
+  current().final[PLAYER].judged = true;
+  current().final[PLAYER].correct = false;
+  current().version++;
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(overview).toContainText('Answer saved · Judged incorrect');
+  await expect(overview).toContainText('Submissions are locked.');
+});
+for (const role of ['audience', 'player'] as const) {
+  test(`${role} cannot see the host Final submission overview or other private answers`, async ({
+    page,
+  }) => {
+    const s = submissionFixture();
+    await mock(page, s, role === 'audience' ? HOST : SPECTATOR);
+    await page.goto(role === 'audience' ? `/display/${s.id}` : `/play/${s.id}`);
+    await expect(page.locator('.question-stage')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Final answer submissions' })).toHaveCount(0);
+    await expect(page.getByText('Secret saved response', { exact: true })).toHaveCount(0);
+    if (role === 'audience')
+      await expect(
+        page.getByRole('button', { name: 'Keep screen awake', exact: true }),
+      ).toHaveCount(0);
+  });
+}

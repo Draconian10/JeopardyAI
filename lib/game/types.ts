@@ -38,6 +38,7 @@ export interface FinalEntry {
   score: number;
   wager?: number;
   text: string;
+  submittedAt?: number;
   judged?: boolean;
   correct?: boolean;
 }

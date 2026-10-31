@@ -506,6 +506,7 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       requireThat(player, 'Player not found.', 403);
       requireThat(s.deadline !== undefined && ctx.now < s.deadline, 'Answers are locked.');
       s.final[player.id].text = cmd.text;
+      s.final[player.id].submittedAt = ctx.now;
       break;
     case 'finalJudge': {
       phase('finalReview');
