@@ -152,7 +152,7 @@ function EditorInner({ id }: { id: string }) {
           <span className="eyebrow">BUILD SOMETHING BRILLIANT</span>
           <h1>The board is yours.</h1>
           <p className="muted">
-            Choose a tile to write its question. Make one a little more interesting.
+            Choose a tile to write its clue. Make one a little more interesting.
           </p>
         </div>
         <div className="button-row">
@@ -162,7 +162,7 @@ function EditorInner({ id }: { id: string }) {
           </button>
           <button className="button primary" disabled={busy} onClick={() => void save()}>
             <Save size={16} />
-            {busy ? 'Saving…' : 'Save game'}
+            {busy ? 'Saving…' : 'Save board'}
           </button>
         </div>
       </div>
@@ -174,7 +174,7 @@ function EditorInner({ id }: { id: string }) {
           <div>
             <h2>Create your board from JSON</h2>
             <p className="muted small">
-              Paste questions grouped by category to fill the entire board at once.
+              Paste clues grouped by category to fill the entire board at once.
             </p>
           </div>
           <button
@@ -195,9 +195,10 @@ function EditorInner({ id }: { id: string }) {
           <div id="question-json-import">
             <p className="muted small">
               Include a title, categories with equally sized questions lists, and Final Jeopardy.
-              Each question needs value, question, and answer. Mark exactly one dailyDouble as true.
-              Optionally include a tiebreakers list with category, question and answer for each
-              clue. Your host PIN is entered separately below.
+              Each clue uses the JSON fields value, question (clue text), and answer (correct
+              response). Mark exactly one dailyDouble as true. Optionally include a tiebreakers list
+              with category, question and answer for each clue. Your host PIN is entered separately
+              below.
             </p>
             <div className="button-row">
               <button
@@ -223,7 +224,7 @@ function EditorInner({ id }: { id: string }) {
                 Use current board JSON
               </button>
             </div>
-            <label htmlFor="game-question-json">Game JSON</label>
+            <label htmlFor="game-question-json">Board JSON</label>
             <textarea
               id="game-question-json"
               className="json-textarea"
@@ -255,14 +256,13 @@ function EditorInner({ id }: { id: string }) {
                     const result = await api<{ board: Board }>('games/import', 'POST', {
                       text: jsonText,
                     });
-                    if (!window.confirm('Replace the current board with these JSON questions?'))
-                      return;
+                    if (!window.confirm('Replace the current board with these JSON clues?')) return;
                     edit(result.board);
                     setSelected(result.board.questions[0].id);
                     setPreview(false);
                     setJsonText(JSON.stringify(boardToQuestionJson(result.board), null, 2));
                     setImportNotice(
-                      `Imported ${result.board.questions.length} questions across ${result.board.categories.length} categories. ${id === 'new' ? 'Set your host PIN and save the game.' : 'Save the game or wait for autosave.'}`,
+                      `Imported ${result.board.questions.length} clues across ${result.board.categories.length} categories. ${id === 'new' ? 'Set your host PIN and save the board.' : 'Save the board or wait for autosave.'}`,
                     );
                   } catch (error) {
                     setImportError((error as Error).message);
@@ -287,7 +287,7 @@ function EditorInner({ id }: { id: string }) {
       </section>
       <div className="editor-meta panel">
         <label className="grow">
-          Game title
+          Board title
           <input
             maxLength={100}
             value={board.title}
@@ -332,7 +332,7 @@ function EditorInner({ id }: { id: string }) {
             <select
               value={board.categories.length}
               onChange={(e) => {
-                if (!confirm('Changing board size resets the questions. Continue?')) return;
+                if (!confirm('Changing board size resets the clues. Continue?')) return;
                 const cols = Number(e.target.value);
                 const next = blankBoard();
                 next.title = board.title;
@@ -368,7 +368,7 @@ function EditorInner({ id }: { id: string }) {
             <select
               value={board.rows}
               onChange={(e) => {
-                if (!confirm('Changing board size resets the questions. Continue?')) return;
+                if (!confirm('Changing board size resets the clues. Continue?')) return;
                 const rows = Number(e.target.value);
                 edit({
                   ...board,
@@ -396,7 +396,7 @@ function EditorInner({ id }: { id: string }) {
           <button
             className="text-button"
             onClick={() => {
-              if (confirm('Replace this board with the complete starter game?'))
+              if (confirm('Replace this board with the complete starter board?'))
                 edit(starterBoard());
             }}
           >
@@ -472,11 +472,11 @@ function EditorInner({ id }: { id: string }) {
           <span className="eyebrow">
             {q ? `${board.categories[q.category]} · ${money(q.value)}` : 'THE GRAND FINALE'}
           </span>
-          <h2>{q ? 'Make them think.' : 'One final question.'}</h2>
+          <h2>{q ? 'Make them think.' : 'One final clue.'}</h2>
           {q ? (
             <>
               <label>
-                Point value
+                Clue value
                 <input
                   type="number"
                   min={1}
@@ -494,7 +494,7 @@ function EditorInner({ id }: { id: string }) {
                 />
               </label>
               <label>
-                Question
+                Clue
                 <textarea
                   rows={5}
                   maxLength={3000}
@@ -512,13 +512,13 @@ function EditorInner({ id }: { id: string }) {
                 />
               </label>
               <label>
-                Correct answer
+                Correct response
                 <textarea
                   rows={2}
                   maxLength={2000}
                   value={q.answer}
                   disabled={preview}
-                  placeholder="The answer is…"
+                  placeholder="The correct response is…"
                   onChange={(e) =>
                     edit({
                       ...board,
@@ -530,7 +530,7 @@ function EditorInner({ id }: { id: string }) {
                 />
               </label>
               <label>
-                Acceptable answers / host notes
+                Acceptable responses / host notes
                 <textarea
                   rows={2}
                   maxLength={2000}
@@ -572,9 +572,9 @@ function EditorInner({ id }: { id: string }) {
               {(['category', 'prompt', 'answer'] as const).map((field) => (
                 <label key={field}>
                   {field === 'prompt'
-                    ? 'Question'
+                    ? 'Clue'
                     : field === 'answer'
-                      ? 'Correct answer'
+                      ? 'Correct response'
                       : 'Category'}
                   <textarea
                     rows={field === 'prompt' ? 5 : 2}
@@ -588,8 +588,7 @@ function EditorInner({ id }: { id: string }) {
                 </label>
               ))}
               <p className="muted small">
-                Players see the category before wagering. The question stays hidden until wagers
-                lock.
+                Players see the category before wagering. The clue stays hidden until wagers lock.
               </p>
             </>
           )}
@@ -606,7 +605,7 @@ function EditorInner({ id }: { id: string }) {
             <legend>Tiebreaker {index + 1}</legend>
             {(['category', 'prompt', 'answer'] as const).map((field) => (
               <label key={field}>
-                {field === 'prompt' ? 'Clue' : field === 'answer' ? 'Correct answer' : 'Category'}
+                {field === 'prompt' ? 'Clue' : field === 'answer' ? 'Correct response' : 'Category'}
                 <textarea
                   rows={field === 'prompt' ? 3 : 2}
                   maxLength={field === 'category' ? 100 : field === 'prompt' ? 3000 : 2000}

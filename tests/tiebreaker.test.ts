@@ -92,7 +92,7 @@ describe('sudden death tiebreakers', () => {
     expect(next.phase).toBe('tieSetup');
     expect(next.tiebreaker?.playerIds).toEqual([A, B]);
     s.final[A].judged = false;
-    expect(() => act(s, { type: 'finish' })).toThrow('Judge every answer');
+    expect(() => act(s, { type: 'finish' })).toThrow('Judge every response');
   });
   it('finishes normally for one leader', () => {
     const s = fixture();
@@ -168,7 +168,7 @@ describe('sudden death tiebreakers', () => {
     const restored = JSON.parse(JSON.stringify(s)) as Session;
     expect(act(restored, { type: 'tieNext' }, HOST, NOW + 30000).phase).toBe('tieSetup');
   });
-  it('applies the optional answer deadline without deducting points or awarding a default win', () => {
+  it('applies the optional response deadline without deducting points or awarding a default win', () => {
     let s = clue();
     s.answerLimitSeconds = 5;
     s = buzz(s);

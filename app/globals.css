@@ -2851,3 +2851,22 @@ input[type='checkbox'] {
   white-space: pre-wrap;
   line-height: 1.45;
 }
+
+.selection-indicator {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 20px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  overflow-wrap: anywhere;
+}
+.selection-indicator strong {
+  font-size: clamp(18px, 2vw, 25px);
+  min-width: 0;
+}
+.selection-indicator span {
+  font-size: 14px;
+  line-height: 1.5;
+}

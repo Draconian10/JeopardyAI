@@ -31,7 +31,7 @@ export default function PracticeRound({
       <span className="badge">PRACTICE · NO POINTS</span>
       <h2>Practice buzzer round</h2>
       <p className="muted">
-        Test your buzzer and connection. Scores and board questions are unchanged.
+        Test your buzzer and connection. Scores and board clues are unchanged.
       </p>
       {open && timer}
       {player && (

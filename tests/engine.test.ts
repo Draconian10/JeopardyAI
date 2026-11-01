@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { applyCommand, createSession, reconcile, viewSession, HOST_GRACE } from '@/lib/game/engine';
 import { boardSchema, commandSchema, pinSchema, playable, type Command } from '@/lib/game/schema';
 import { starterBoard } from '@/lib/game/starter';
@@ -137,7 +137,7 @@ describe('authoritative buzzer and scoring', () => {
     expect(s.phase).toBe('reveal');
     expect(s.players.map((p) => p.score)).toEqual([-200, -200]);
   });
-  it('awards a correct answer exactly once under a repeated action ID', () => {
+  it('awards a correct response exactly once under a repeated action ID', () => {
     let s = question();
     s = act(s, { type: 'buzz', windowId: s.windowId! }, A);
     const actionId = crypto.randomUUID();
@@ -374,4 +374,98 @@ describe('complete game flow', () => {
     expect(s.players[0].score).toBe(before * 2);
     expect(JSON.parse(JSON.stringify(s)).final[A].text).toBe('Taj Mahal');
   });
+});
+
+describe('next clue selection', () => {
+  it('randomly selects an active first player only on start, never during practice or reads', () => {
+    const lobby = fixture();
+    lobby.players.push({ id: 'removed', name: 'Removed', score: 0, removed: true, lastSeen: NOW });
+    expect(lobby.nextSelectorId).toBeUndefined();
+    const practice = act(lobby, { type: 'practiceStart' });
+    expect(practice.nextSelectorId).toBeUndefined();
+    const s = act(act(practice, { type: 'practiceStop' }), { type: 'start' });
+    expect([A, B]).toContain(s.nextSelectorId);
+    const restored = JSON.parse(JSON.stringify(s));
+    expect(viewSession(restored, A, NOW).nextSelectorId).toBe(s.nextSelectorId);
+    expect(viewSession(restored, HOST, NOW, CONTROL, true).nextSelectorId).toBe(s.nextSelectorId);
+    expect(act(s, { type: 'tick' }).nextSelectorId).toBe(s.nextSelectorId);
+    expect(() => act(s, { type: 'start' })).toThrow();
+  });
+  it('transfers on correct regular responses and restores the selector on undo', () => {
+    let s = question();
+    s.nextSelectorId = A;
+    s = act(s, { type: 'buzz', windowId: s.windowId! }, B);
+    s = act(s, { type: 'judge', correct: true });
+    expect(s.nextSelectorId).toBe(B);
+    s = act(s, { type: 'undo' });
+    expect(s.nextSelectorId).toBe(A);
+    s = act(s, { type: 'judge', correct: false });
+    expect(s.nextSelectorId).toBe(A);
+    s = act(s, { type: 'buzz', windowId: s.windowId! }, A);
+    s = act(s, { type: 'judge', correct: false });
+    expect(s.phase).toBe('reveal');
+    expect(s.nextSelectorId).toBe(A);
+    expect(act(s, { type: 'next' }).nextSelectorId).toBe(A);
+  });
+  it('keeps selection on no buzz, forced reveal, response timeout and pause/resume', () => {
+    let s = question();
+    s.nextSelectorId = B;
+    const expired = structuredClone(s);
+    expired.hostSeen = NOW + 30000;
+    reconcile(expired, NOW + 30000);
+    expect(expired.phase).toBe('reveal');
+    expect(expired.nextSelectorId).toBe(B);
+    expect(act(s, { type: 'reveal' }).nextSelectorId).toBe(B);
+    s.answerLimitSeconds = 5;
+    s = act(s, { type: 'buzz', windowId: s.windowId! }, A);
+    reconcile(s, NOW + 5000);
+    expect(s.nextSelectorId).toBe(B);
+    s = act(s, { type: 'pause' }, HOST, NOW + 5000);
+    s = JSON.parse(JSON.stringify(s));
+    s = act(s, { type: 'continue' }, HOST, NOW + 6000);
+    expect(s.nextSelectorId).toBe(B);
+  });
+  it('transfers on a correct zero-wager Daily Double but retains selection on a miss', () => {
+    let s = act(fixture(), { type: 'start' });
+    s.nextSelectorId = A;
+    s = act(s, { type: 'select', questionId: s.board.questions.find((q) => q.dailyDouble)!.id });
+    s = act(s, { type: 'dailyWager', playerId: B, amount: 0 });
+    const correct = act(s, { type: 'dailyJudge', correct: true });
+    expect(correct.nextSelectorId).toBe(B);
+    expect(act(correct, { type: 'undo' }).nextSelectorId).toBe(A);
+    expect(act(s, { type: 'dailyJudge', correct: false }).nextSelectorId).toBe(A);
+  });
+  it('supports old sessions without the field and keeps tile selection host-only', () => {
+    const s = question();
+    delete s.nextSelectorId;
+    s.phase = 'board';
+    expect(viewSession(s, A, NOW).nextSelectorId).toBe(A);
+    const cmd = {
+      type: 'select' as const,
+      questionId: s.board.questions.find((q) => !q.dailyDouble)!.id,
+    };
+    expect(() => act(s, cmd, A)).toThrow('Only the host');
+    expect(act(s, cmd).nextSelectorId).toBe(A);
+  });
+});
+
+it('does not reroll the opening selector on a retried start command', () => {
+  const spy = vi.spyOn(crypto, 'getRandomValues');
+  try {
+    const s = fixture();
+    const ctx = {
+      userId: HOST,
+      controller: CONTROL,
+      now: NOW,
+      actionId: crypto.randomUUID(),
+      expectedVersion: s.actionVersion,
+    };
+    const started = applyCommand(s, { type: 'start' }, ctx);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const retried = applyCommand(started, { type: 'start' }, ctx);
+    expect(retried.nextSelectorId).toBe(started.nextSelectorId);
+    expect(spy).toHaveBeenCalledTimes(1);
+  } finally {
+    spy.mockRestore();
+  }
 });

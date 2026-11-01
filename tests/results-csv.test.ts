@@ -41,20 +41,22 @@ describe('results CSV', () => {
   });
   it('exports each question including scoreless questions and individual misses', () => {
     const rows = records(resultsCsv(fixture()));
-    const summary = rows.filter((r) => r['Record type'] === 'Question summary');
+    const summary = rows.filter((r) => r['Record type'] === 'Clue summary');
     expect(summary).toHaveLength(9);
     expect(
-      summary.filter((r) => r['Question number'] === '2').every((r) => r['Score change'] === '0'),
+      summary.filter((r) => r['Clue number'] === '2').every((r) => r['Score change'] === '0'),
     ).toBe(true);
-    expect(
-      summary.find((r) => r['Question number'] === '1' && r['Player ID'] === 'b'),
-    ).toMatchObject({ 'Score change': '-200', 'Score after': '-200' });
+    expect(summary.find((r) => r['Clue number'] === '1' && r['Player ID'] === 'b')).toMatchObject({
+      'Score change': '-200',
+      'Score after': '-200',
+    });
     expect(
       rows.find((r) => r['Record type'] === 'Score event' && r.Detail === 'Incorrect'),
     ).toMatchObject({ 'Timestamp UTC': '1970-01-01T00:00:02.000Z' });
-    expect(
-      summary.find((r) => r['Question ID'] === 'final' && r['Player ID'] === 'a'),
-    ).toMatchObject({ 'Score change': '200', 'Score after': '400' });
+    expect(summary.find((r) => r['Clue ID'] === 'final' && r['Player ID'] === 'a')).toMatchObject({
+      'Score change': '200',
+      'Score after': '400',
+    });
   });
   it('neutralizes formula-like text while retaining negative numeric values', () => {
     const s = fixture();
@@ -80,7 +82,7 @@ describe('results CSV', () => {
     s.questionId = s.board.questions[0].id;
     const csv = resultsCsv(s),
       rows = records(csv);
-    expect(rows.filter((r) => r['Record type'] === 'Question summary')).toHaveLength(3);
+    expect(rows.filter((r) => r['Record type'] === 'Clue summary')).toHaveLength(3);
     expect(rows.every((r) => r['Session status'] === 'Ended early')).toBe(true);
     expect(csv).not.toContain(s.board.final.answer);
     expect(csv).not.toContain(s.board.questions[2].prompt);
@@ -92,7 +94,7 @@ describe('results CSV', () => {
     s.final = { a: { score: 400, wager: 100, text: '' } };
     const csv = resultsCsv(s);
     expect(csv).not.toContain(s.board.final.prompt);
-    expect(records(csv).filter((r) => r['Record type'] === 'Question summary')).toHaveLength(6);
+    expect(records(csv).filter((r) => r['Record type'] === 'Clue summary')).toHaveLength(6);
   });
   it('uses the surviving score ledger after an undo rather than the action history', () => {
     const s = fixture();
@@ -102,7 +104,7 @@ describe('results CSV', () => {
     expect(rows.some((r) => r['Record type'] === 'Score event')).toBe(false);
     expect(
       rows
-        .filter((r) => r['Record type'] === 'Question summary')
+        .filter((r) => r['Record type'] === 'Clue summary')
         .every((r) => r['Score change'] === '0'),
     ).toBe(true);
   });

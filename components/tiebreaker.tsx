@@ -99,7 +99,7 @@ export default function Tiebreaker({
                     />
                   </label>
                   <label>
-                    Tiebreaker answer
+                    Tiebreaker correct response
                     <input
                       required
                       maxLength={2000}
@@ -201,7 +201,7 @@ export default function Tiebreaker({
           )}
           {host && s.phase !== 'tieReveal' && (
             <details className="host-answer">
-              <summary>Private host answer</summary>
+              <summary>Private correct response</summary>
               <p>{round?.answer}</p>
             </details>
           )}

@@ -133,7 +133,7 @@ describe('practice buzzer', () => {
     expect(() => act(lobby(), { type: 'practiceStart' }, A)).toThrow('Only the host');
   });
 });
-describe('optional answer deadline', () => {
+describe('optional response deadline', () => {
   it('validates Off or 5–60 whole seconds and restricts configuration to the controlling host in the lobby', () => {
     for (const answerLimitSeconds of [-1, 1, 4, 5.5, 61])
       expect(commandSchema.safeParse({ type: 'configure', answerLimitSeconds }).success).toBe(
@@ -170,7 +170,7 @@ describe('optional answer deadline', () => {
     expect(s.deadline).toBe(NOW + 40000);
     expect(s.windowId).not.toBe(old);
     expect(s.attempted).toContain(A);
-    expect(s.events[0].reason).toBe('Answer time expired');
+    expect(s.events[0].reason).toBe('Response time expired');
     reconcile(s, NOW + 13000);
     expect(s.events).toHaveLength(1);
     expect(() => act(s, { type: 'buzz', windowId: s.windowId! }, A, NOW + 13000)).toThrow(
@@ -269,7 +269,7 @@ describe('standings movement', () => {
         playerId: B,
         questionId: s.questionId!,
         delta: 400,
-        reason: 'Correct answer',
+        reason: 'Correct response',
         at: NOW,
       },
     ];

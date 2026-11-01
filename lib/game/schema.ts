@@ -39,7 +39,7 @@ export const boardSchema = z
       )
         ctx.addIssue({
           code: 'custom',
-          message: 'Every board position and question ID must be unique and inside the board.',
+          message: 'Every board position and clue ID must be unique and inside the board.',
         });
       positions.add(key);
       ids.add(q.id);
@@ -47,19 +47,19 @@ export const boardSchema = z
     if (positions.size !== b.categories.length * b.rows)
       ctx.addIssue({
         code: 'custom',
-        message: 'The board must contain exactly one question per position.',
+        message: 'The board must contain exactly one clue per position.',
       });
   });
 export type Board = z.infer<typeof boardSchema>;
 export function playable(board: Board) {
   boardSchema.parse(board);
   if (board.categories.some((c) => !c) || board.questions.some((q) => !q.prompt || !q.answer))
-    throw new Error('Complete every category, question, and answer before starting.');
+    throw new Error('Complete every category, clue, and correct response before starting.');
   if (board.questions.filter((q) => q.dailyDouble).length !== 1)
     throw new Error('Select exactly one Daily Double.');
   if (board.tiebreakers?.some((q) => !q.category || !q.prompt || !q.answer))
     throw new Error(
-      'Complete every saved tiebreaker category, clue, and answer, or remove the incomplete clue.',
+      'Complete every saved tiebreaker category, clue, and correct response, or remove the incomplete clue.',
     );
   if (!board.final.category || !board.final.prompt || !board.final.answer)
     throw new Error('Complete Final Jeopardy.');

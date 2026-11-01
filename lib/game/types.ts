@@ -71,6 +71,7 @@ export interface Session {
   hostSeen: number;
   players: Player[];
   used: string[];
+  nextSelectorId?: string;
   questionId?: string;
   windowId?: string;
   deadline?: number;
@@ -100,6 +101,7 @@ export interface Session {
     remaining: number;
     used: string[];
     eventsLength: number;
+    nextSelectorId?: string;
     scores: Record<string, number>;
     windowId?: string;
     daily?: { playerId: string; amount: number };
@@ -166,5 +168,6 @@ export interface SessionView {
     nextSavedCategory?: string;
     round?: Omit<TiebreakerRound, 'answer'> & { answer?: string };
   };
+  nextSelectorId?: string;
   canUndo: boolean;
 }

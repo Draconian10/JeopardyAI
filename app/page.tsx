@@ -8,7 +8,7 @@ export default function Home() {
         <span className="live-dot" /> YOUR NEXT GAME NIGHT STARTS HERE
       </div>
       <h1>
-        A board full of questions.
+        A board full of clues.
         <br />
         <span>A room full of contenders.</span>
       </h1>

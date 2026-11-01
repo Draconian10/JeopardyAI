@@ -173,7 +173,7 @@ test.afterEach(async ({ page }, testInfo) => {
 
 test('home offers hosting and joining without horizontal overflow', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: /A board full of questions/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /A board full of clues/ })).toBeVisible();
   await expect(page.getByRole('link', { name: /Host a game/ })).toHaveAttribute('href', '/host');
   await expect(page.getByRole('link', { name: /Join a game/ })).toHaveAttribute('href', '/join');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
@@ -216,7 +216,7 @@ test('mobile player buzzer is server-confirmed and duplicate buzzing is disabled
   await page.goto(`/play/${s.id}`);
   await page.getByRole('button', { name: 'BUZZ!', exact: false }).click();
   await expect(page.getByRole('button', { name: 'YOU’RE UP!', exact: false })).toBeDisabled();
-  await expect(page.getByText('Give your answer to the host.')).toBeVisible();
+  await expect(page.getByText('Give your response to the host.')).toBeVisible();
   expect(current().respondent).toBe(PLAYER);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
@@ -227,8 +227,11 @@ test('editor supports selecting a tile and saving a structured board', async ({ 
   await mock(page, s);
   await page.goto(`/host/edit/${s.gameId}`);
   await expect(page.getByRole('heading', { name: 'The board is yours.' })).toBeVisible();
-  await page.getByRole('textbox', { name: 'Question', exact: true }).fill('A revised question');
-  await page.getByRole('button', { name: 'Save game' }).click();
+  await page
+    .locator('.question-editor')
+    .getByRole('textbox', { name: 'Clue', exact: true })
+    .fill('A revised question');
+  await page.getByRole('button', { name: 'Save board' }).click();
   await expect(page.getByRole('status')).toContainText('All changes saved');
 });
 test('Final Jeopardy draft is saved and kept on the server', async ({ page }) => {
@@ -239,7 +242,7 @@ test('Final Jeopardy draft is saved and kept on the server', async ({ page }) =>
   s.final = { [PLAYER]: { score: 0, wager: 0, text: '' } };
   const current = await mock(page, s, PLAYER);
   await page.goto(`/play/${s.id}`);
-  await page.getByLabel('Your answer', { exact: true }).fill('The Taj Mahal');
+  await page.getByLabel('Your response', { exact: true }).fill('The Taj Mahal');
   await expect.poll(() => current().final[PLAYER].text).toBe('The Taj Mahal');
   await expect(page.locator('.player-game form [role="status"]')).toContainText('Saved');
 });
@@ -252,7 +255,7 @@ test('audience view never displays private host answers', async ({ page }) => {
   await page.goto(`/display/${s.id}`);
   await expect(page.getByRole('heading', { name: s.board.questions[0].prompt })).toBeVisible();
   await expect(page.getByText(s.board.questions[0].answer, { exact: true })).toHaveCount(0);
-  await expect(page.getByText('Private host answer')).toHaveCount(0);
+  await expect(page.getByText('Private correct response')).toHaveCount(0);
 });
 
 test('JSON import validates before replacing the board and can save imported questions', async ({
@@ -262,24 +265,24 @@ test('JSON import validates before replacing the board and can save imported que
   await mock(page, s);
   await page.goto(`/host/edit/${s.gameId}`);
   await page.getByRole('button', { name: 'Import JSON', exact: true }).click();
-  await page.getByLabel('Game JSON', { exact: true }).fill('{broken');
+  await page.getByLabel('Board JSON', { exact: true }).fill('{broken');
   await page.getByRole('button', { name: 'Validate & apply JSON' }).click();
   await expect(
     page.getByText('Invalid JSON. Check double quotes, commas, and closing brackets.'),
   ).toBeVisible();
-  await expect(page.getByLabel('Game title', { exact: true })).toHaveValue(s.title);
+  await expect(page.getByLabel('Board title', { exact: true })).toHaveValue(s.title);
   await page.getByRole('button', { name: 'Load JSON example' }).click();
-  await expect(page.getByLabel('Game JSON', { exact: true })).toHaveValue(QUESTION_JSON_EXAMPLE);
+  await expect(page.getByLabel('Board JSON', { exact: true })).toHaveValue(QUESTION_JSON_EXAMPLE);
   page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Validate & apply JSON' }).click();
-  await expect(page.getByLabel('Game title', { exact: true })).toHaveValue('My trivia night');
-  await expect(page.getByRole('textbox', { name: 'Question', exact: true })).toHaveValue(
-    'Which planet is known as the Red Planet?',
-  );
+  await expect(page.getByLabel('Board title', { exact: true })).toHaveValue('My trivia night');
+  await expect(
+    page.locator('.question-editor').getByRole('textbox', { name: 'Clue', exact: true }),
+  ).toHaveValue('Which planet is known as the Red Planet?');
   const saved = page.waitForRequest(
     (request) => request.url().includes(`/api/games/${s.gameId}`) && request.method() === 'PUT',
   );
-  await page.getByRole('button', { name: 'Save game', exact: true }).click();
+  await page.getByRole('button', { name: 'Save board', exact: true }).click();
   const imported = (await saved).postDataJSON().board;
   expect(imported.categories).toEqual(['Science', 'Geography']);
   expect(imported.tiebreakers).toHaveLength(2);
@@ -293,7 +296,7 @@ test('canceling a JSON import preserves the existing board', async ({ page }) =>
   await page.getByRole('button', { name: 'Load JSON example' }).click();
   page.once('dialog', (dialog) => dialog.dismiss());
   await page.getByRole('button', { name: 'Validate & apply JSON' }).click();
-  await expect(page.getByLabel('Game title', { exact: true })).toHaveValue(s.title);
+  await expect(page.getByLabel('Board title', { exact: true })).toHaveValue(s.title);
   await expect(page.locator('.board-tile')).toHaveCount(30);
 });
 
@@ -361,13 +364,13 @@ test('canceling dashboard end keeps the session active', async ({ page }) => {
   expect(current().phase).toBe('lobby');
   await expect(page.getByRole('link', { name: 'Resume', exact: false })).toBeVisible();
 });
-test('host configures an answer deadline and runs practice before the real game', async ({
+test('host configures an response deadline and runs practice before the real game', async ({
   page,
 }) => {
   const s = fixture();
   const current = await mock(page, s);
   await claimHost(page, s);
-  await page.getByLabel('Answer deadline after buzzing', { exact: true }).selectOption('10');
+  await page.getByLabel('Response deadline after buzzing', { exact: true }).selectOption('10');
   await expect.poll(() => current().answerLimitSeconds).toBe(10);
   await page.getByRole('button', { name: 'Start practice round', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Practice buzzer round' })).toBeVisible();
@@ -422,7 +425,7 @@ test('standings reorder with rank movement when an answer changes the leader', a
     .toBe(0);
 });
 
-test('answer deadline expires on the server and deducts points before reopening the buzzer', async ({
+test('response deadline expires on the server and deducts points before reopening the buzzer', async ({
   page,
 }) => {
   const s = fixture();
@@ -440,7 +443,7 @@ test('answer deadline expires on the server and deducts points before reopening 
   await page.goto(`/play/${s.id}`);
   await expect.poll(() => current().phase).toBe('question');
   await expect(page.locator('.personal-score strong')).toHaveText('-$200');
-  await expect(page.getByText(/Answer time expired for Alex/)).toBeVisible();
+  await expect(page.getByText(/Response time expired for Alex/)).toBeVisible();
   expect(current().events).toHaveLength(1);
 });
 
@@ -495,13 +498,13 @@ test('a gameplay validation error survives successful synchronization and clears
   await page.route(`**/api/sessions/${s.id}/command`, async (route) => {
     if (reject && route.request().postDataJSON().command.type === 'buzz') {
       reject = false;
-      return route.fulfill({ status: 400, json: { error: 'You already answered this question.' } });
+      return route.fulfill({ status: 400, json: { error: 'You already answered this clue.' } });
     }
     return route.fallback();
   });
   await page.getByRole('button', { name: 'BUZZ!', exact: false }).click();
   await expect(page.locator('.session-container p[role="alert"]')).toHaveText(
-    'You already answered this question.',
+    'You already answered this clue.',
   );
   await Promise.all([
     page.waitForResponse(
@@ -510,7 +513,7 @@ test('a gameplay validation error survives successful synchronization and clears
     page.evaluate(() => window.dispatchEvent(new Event('focus'))),
   ]);
   await expect(page.locator('.session-container p[role="alert"]')).toHaveText(
-    'You already answered this question.',
+    'You already answered this clue.',
   );
   await page.getByRole('button', { name: 'BUZZ!', exact: false }).click();
   await expect(page.getByRole('button', { name: 'YOU’RE UP!', exact: false })).toBeVisible();
@@ -645,7 +648,7 @@ test('fresh launch opens a controlled unpaused lobby after one PIN and reload st
   s.phase = 'finished';
   const current = await mock(page, s);
   await page.goto('/host');
-  await page.getByRole('button', { name: 'Start game', exact: true }).click();
+  await page.getByRole('button', { name: 'Start session', exact: true }).click();
   await page.getByLabel('Host PIN').fill('123456');
   await page.getByRole('button', { name: 'Open lobby', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Start Jeopardy', exact: true })).toBeVisible();
@@ -687,7 +690,7 @@ for (const phase of ['finished', 'ended'] as const) {
     expect(download.suggestedFilename()).toBe(`jeopardy-results-${s.id}.csv`);
     const csv = await readFile((await download.path())!, 'utf8');
     expect(csv).toContain('"Final standing"');
-    expect(csv).toContain('"Question summary"');
+    expect(csv).toContain('"Clue summary"');
     expect(csv).toContain('"Score event"');
     expect(csv).toContain('"2400"');
     expect(csv).toContain(q.prompt.replace(/"/g, '""'));
@@ -768,7 +771,7 @@ async function fillTieClue(page: Page, suffix = '') {
   await page
     .getByLabel('Tiebreaker clue', { exact: true })
     .fill('This is the capital of France.' + suffix);
-  await page.getByLabel('Tiebreaker answer', { exact: true }).fill('What is Paris?');
+  await page.getByLabel('Tiebreaker correct response', { exact: true }).fill('What is Paris?');
   await page.getByRole('button', { name: 'Present clue & open buzzers' }).click();
 }
 test('tied Final leaders play sudden death and only a correct response wins without changing scores', async ({
@@ -894,7 +897,7 @@ test('host clue disappears after a buzz and reappears after an incorrect respons
   expect(current().respondent).toBeUndefined();
   await expect(page.getByRole('heading', { name: prompt, exact: true })).toBeVisible();
 });
-test('stale stage errors clear automatically on the next question without hiding same-stage validation', async ({
+test('stale stage errors clear automatically on the next clue without hiding same-stage validation', async ({
   page,
 }) => {
   const s = fixture();
@@ -995,7 +998,7 @@ test('editor adds, reorders and saves tiebreaker clues as part of the board JSON
     const fieldset = section.locator('fieldset').last();
     await fieldset.getByLabel('Category', { exact: true }).fill(name + ' category');
     await fieldset.getByLabel('Clue', { exact: true }).fill(name + ' clue');
-    await fieldset.getByLabel('Correct answer', { exact: true }).fill(name + ' answer');
+    await fieldset.getByLabel('Correct response', { exact: true }).fill(name + ' answer');
   }
   await section
     .locator('fieldset')
@@ -1008,13 +1011,13 @@ test('editor adds, reorders and saves tiebreaker clues as part of the board JSON
   const saved = page.waitForRequest(
     (r) => r.url().includes(`/api/games/${s.gameId}`) && r.method() === 'PUT',
   );
-  await page.getByRole('button', { name: 'Save game', exact: true }).click();
+  await page.getByRole('button', { name: 'Save board', exact: true }).click();
   expect(
     (await saved).postDataJSON().board.tiebreakers.map((q: { category: string }) => q.category),
   ).toEqual(['Second category', 'First category']);
   await page.getByRole('button', { name: 'Import JSON', exact: true }).click();
   await page.getByRole('button', { name: 'Use current board JSON' }).click();
-  const json = JSON.parse(await page.getByLabel('Game JSON', { exact: true }).inputValue());
+  const json = JSON.parse(await page.getByLabel('Board JSON', { exact: true }).inputValue());
   expect(json.tiebreakers[0]).toEqual({
     category: 'Second category',
     question: 'Second clue',
@@ -1222,7 +1225,7 @@ test('host wake lock reports OS release and can retry without pausing gameplay',
   await page.getByRole('button', { name: 'Keep screen awake', exact: true }).click();
   await expect(page.locator('.awake-status')).toHaveText('Active');
   expect(current().paused).toBe(false);
-  await page.getByRole('link', { name: 'Your games', exact: true }).click();
+  await page.getByRole('link', { name: 'Your boards', exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.awakeTest.releases)).toBe(2);
 });
 test('wake lock denial is retryable and unsupported devices get a clear fallback', async ({
@@ -1293,23 +1296,23 @@ test('host sees live received, blank and missing Final submissions separately fr
   const s = submissionFixture(),
     current = await mock(page, s);
   await openControlledHost(page, s);
-  const overview = page.getByRole('region', { name: 'Final answer submissions' });
-  await expect(overview.getByRole('heading', { name: '1 of 3 answers saved' })).toBeVisible();
-  await expect(overview).toContainText('Blank answer saved');
-  await expect(overview).toContainText('No answer received');
+  const overview = page.getByRole('region', { name: 'Final response submissions' });
+  await expect(overview.getByRole('heading', { name: '1 of 3 responses saved' })).toBeVisible();
+  await expect(overview).toContainText('Blank response saved');
+  await expect(overview).toContainText('No response received');
   await expect(overview.getByText('Secret saved response', { exact: true })).toHaveCount(0);
   current().final[SPECTATOR].text = 'Another response';
   current().final[SPECTATOR].submittedAt = Date.now();
   current().version++;
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-  await expect(overview.getByRole('heading', { name: '2 of 3 answers saved' })).toBeVisible();
+  await expect(overview.getByRole('heading', { name: '2 of 3 responses saved' })).toBeVisible();
   current().phase = 'finalReview';
   current().deadline = undefined;
   current().final[PLAYER].judged = true;
   current().final[PLAYER].correct = false;
   current().version++;
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-  await expect(overview).toContainText('Answer saved · Judged incorrect');
+  await expect(overview).toContainText('Response saved · Judged incorrect');
   await expect(overview).toContainText('Submissions are locked.');
 });
 for (const role of ['audience', 'player'] as const) {
@@ -1320,7 +1323,7 @@ for (const role of ['audience', 'player'] as const) {
     await mock(page, s, role === 'audience' ? HOST : SPECTATOR);
     await page.goto(role === 'audience' ? `/display/${s.id}` : `/play/${s.id}`);
     await expect(page.locator('.question-stage')).toBeVisible();
-    await expect(page.getByRole('region', { name: 'Final answer submissions' })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Final response submissions' })).toHaveCount(0);
     await expect(page.getByText('Secret saved response', { exact: true })).toHaveCount(0);
     if (role === 'audience')
       await expect(
@@ -1422,7 +1425,7 @@ test('Final correct-response stage appears before the host opens individual resp
   ).toBeVisible();
   await expect(page.getByText('Secret saved response', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Correct', exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Reveal player answers', exact: false }).click();
+  await page.getByRole('button', { name: 'Reveal player responses', exact: false }).click();
   expect(current().phase).toBe('finalReview');
   await expect(page.getByRole('heading', { name: 'Pat’s moment.', exact: true })).toBeVisible();
 });
@@ -1439,7 +1442,7 @@ test('audience correct-response stage does not expose private player responses o
   ).toBeVisible();
   await expect(page.getByText('Secret saved response', { exact: true })).toHaveCount(0);
   await expect(
-    page.getByRole('button', { name: 'Reveal player answers', exact: false }),
+    page.getByRole('button', { name: 'Reveal player responses', exact: false }),
   ).toHaveCount(0);
 });
 for (const tied of [false, true]) {
@@ -1506,7 +1509,67 @@ test('player Final layout scales with card width across phones, tablets and lapt
     expect(sizes.font).toBeLessThanOrEqual(36);
     if (width >= 1366) expect(sizes.width).toBeGreaterThan(700);
   }
-  await page.getByRole('textbox', { name: 'Your answer', exact: true }).fill('Taj Mahal');
-  await page.getByRole('button', { name: 'Save answer', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Your response', exact: true }).fill('Taj Mahal');
+  await page.getByRole('button', { name: 'Save response', exact: true }).click();
   await expect(page.locator('.player-game form [role="status"]')).toHaveText('Saved');
 });
+
+test('next selection persists across misses, correct responses, undo and reload while host selects tiles', async ({
+  page,
+}) => {
+  let s = fixture();
+  s.phase = 'board';
+  s.nextSelectorId = PLAYER;
+  const other = '55555555-5555-4555-8555-555555555555';
+  s.players.push({ id: other, name: 'Jon', score: 0, lastSeen: Date.now(), removed: false });
+  const current = await mock(page, s);
+  await page.goto(`/host/session/${s.id}`);
+  await page.getByLabel('Host PIN', { exact: true }).fill('123456');
+  await page.getByRole('button', { name: 'Resume / take control' }).click();
+  await page.getByRole('button', { name: 'Continue game', exact: false }).first().click();
+  await expect(page.getByText('Next selection: Alex', { exact: true })).toBeVisible();
+  await page.locator('.board-tile').first().click();
+  // This fixture's first tile is regular; submit another player's buzz through the real engine.
+  const buzz = () => {
+    const state = current();
+    const next = applyCommand(
+      state,
+      { type: 'buzz', windowId: state.windowId! },
+      {
+        userId: other,
+        now: Date.now(),
+        actionId: crypto.randomUUID(),
+        expectedVersion: state.actionVersion,
+      },
+    );
+    Object.assign(state, next);
+  };
+  buzz();
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await page.getByRole('button', { name: 'Incorrect', exact: true }).click();
+  await expect(page.getByText('Next selection: Alex', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Undo last judgment', exact: true }).click();
+  await page.getByRole('button', { name: 'Correct', exact: true }).click();
+  await expect(page.getByText('Next selection: Jon', { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('Next selection: Jon', { exact: true })).toBeVisible();
+  expect(current().nextSelectorId).toBe(other);
+  const box = await page.locator('.selection-indicator').boundingBox();
+  expect(box!.x + box!.width).toBeLessThanOrEqual(await page.evaluate(() => innerWidth));
+});
+
+for (const role of ['player', 'audience'] as const) {
+  test(`${role} sees selection without host tile controls`, async ({ page }) => {
+    const s = fixture();
+    s.phase = 'board';
+    s.nextSelectorId = PLAYER;
+    await mock(page, s, role === 'player' ? PLAYER : HOST);
+    await page.goto(`/${role === 'player' ? 'play' : 'display'}/${s.id}`);
+    await expect(page.getByText('Next selection: Alex', { exact: true })).toBeVisible();
+    if (role === 'player')
+      await expect(
+        page.getByText('Your choice — tell the host the category and value.'),
+      ).toBeVisible();
+    await expect(page.locator('.board-tile:not([disabled])')).toHaveCount(0);
+  });
+}

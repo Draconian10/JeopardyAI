@@ -46,6 +46,18 @@ function requireThat(condition: unknown, message: string, status = 400): asserts
   if (!condition) throw new GameError(message, status);
 }
 export const activePlayers = (s: Session) => s.players.filter((p) => !p.removed);
+// Only active seats can select. Legacy sessions use a stable fallback without rerolling on reads.
+export function nextSelectorId(s: Session) {
+  return activePlayers(s).find((p) => p.id === s.nextSelectorId)?.id ?? activePlayers(s)[0]?.id;
+}
+function randomFirstSelector(s: Session) {
+  const players = activePlayers(s);
+  const bound = Math.floor(0x100000000 / players.length) * players.length;
+  const sample = new Uint32Array(1);
+  do crypto.getRandomValues(sample);
+  while (sample[0] >= bound);
+  return players[sample[0] % players.length].id;
+}
 export function finalReviewPlayer(s: Session) {
   return activePlayers(s)
     .filter((p) => !s.final[p.id]?.judged)
@@ -194,13 +206,15 @@ function judgeRegular(s: Session, correct: boolean, ctx: Context, timedOut = fal
     s,
     respondent,
     correct ? q.value : -q.value,
-    timedOut ? 'Answer time expired' : correct ? 'Correct answer' : 'Incorrect answer',
+    timedOut ? 'Response time expired' : correct ? 'Correct response' : 'Incorrect response',
     ctx,
   );
   s.answerDeadline = undefined;
   s.answerRemaining = undefined;
-  if (correct) closeQuestion(s);
-  else {
+  if (correct) {
+    s.nextSelectorId = respondent;
+    closeQuestion(s);
+  } else {
     s.attempted.push(respondent);
     if (activePlayers(s).every((p) => s.attempted.includes(p.id)) || s.remaining <= 0)
       closeQuestion(s);
@@ -232,6 +246,7 @@ function rememberJudgment(s: Session) {
     remaining: s.remaining,
     used: [...s.used],
     eventsLength: s.events.length,
+    nextSelectorId: nextSelectorId(s),
     scores: Object.fromEntries(s.players.map((p) => [p.id, p.score])),
     windowId: s.windowId,
     daily: s.daily && { ...s.daily },
@@ -389,13 +404,15 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
     case 'start':
       phase('lobby');
       requireThat(activePlayers(s).length > 0, 'At least one player must join.');
+      s.nextSelectorId = randomFirstSelector(s);
       s.phase = 'board';
       s.locked = true;
       break;
     case 'select': {
       phase('board');
+      s.nextSelectorId = nextSelectorId(s);
       const q = s.board.questions.find((q) => q.id === cmd.questionId);
-      requireThat(q && !s.used.includes(q.id), 'Choose an unused question.');
+      requireThat(q && !s.used.includes(q.id), 'Choose an unused clue.');
       s.questionId = q.id;
       s.questionOpenedAt = ctx.now;
       s.attempted = [];
@@ -423,7 +440,7 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
         );
       requireThat(player, 'Player not found.', 403);
       requireThat(cmd.windowId === s.windowId, 'That buzzer window has closed.', 409);
-      requireThat(!s.attempted.includes(player.id), 'You already answered this question.');
+      requireThat(!s.attempted.includes(player.id), 'You already answered this clue.');
       requireThat(s.deadline !== undefined && ctx.now < s.deadline, 'Time has expired.');
       s.remaining = s.deadline - ctx.now;
       s.deadline = undefined;
@@ -484,6 +501,7 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
         'Daily Double',
         ctx,
       );
+      if (cmd.correct) s.nextSelectorId = s.daily.playerId;
       closeQuestion(s);
       break;
     case 'wager':
@@ -505,7 +523,7 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
     case 'answer':
       phase('finalAnswer');
       requireThat(player, 'Player not found.', 403);
-      requireThat(s.deadline !== undefined && ctx.now < s.deadline, 'Answers are locked.');
+      requireThat(s.deadline !== undefined && ctx.now < s.deadline, 'Responses are locked.');
       s.final[player.id].text = cmd.text;
       s.final[player.id].submittedAt = ctx.now;
       break;
@@ -517,8 +535,11 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       phase('finalReview');
       requireThat(cmd.playerId === finalReviewPlayer(s), 'Review the next player in order.');
       const entry = s.final[cmd.playerId];
-      requireThat(entry && !entry.judged, 'This answer was already judged.');
-      requireThat(!cmd.correct || !!entry.text.trim(), 'A blank answer must be marked incorrect.');
+      requireThat(entry && !entry.judged, 'This response was already judged.');
+      requireThat(
+        !cmd.correct || !!entry.text.trim(),
+        'A blank response must be marked incorrect.',
+      );
       score(s, cmd.playerId, cmd.correct ? entry.wager! : -entry.wager!, 'Final Jeopardy', ctx);
       entry.judged = true;
       entry.correct = cmd.correct;
@@ -526,7 +547,7 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
     }
     case 'finish':
       phase('finalReview');
-      requireThat(!finalReviewPlayer(s), 'Judge every answer first.');
+      requireThat(!finalReviewPlayer(s), 'Judge every response first.');
       {
         const players = activePlayers(s);
         const high = Math.max(...players.map((p) => p.score));
@@ -593,6 +614,7 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       const u = s.undo;
       for (const p of s.players) p.score = u.scores[p.id] ?? p.score;
       s.events = s.events.slice(0, u.eventsLength);
+      s.nextSelectorId = u.nextSelectorId ?? nextSelectorId(s);
       s.phase = u.phase;
       s.respondent = u.respondent;
       s.attempted = u.attempted;
@@ -750,6 +772,7 @@ export function viewSession(
               : undefined,
         }
       : undefined,
+    nextSelectorId: nextSelectorId(s),
     canUndo: privateHost && !!s.undo,
   };
 }

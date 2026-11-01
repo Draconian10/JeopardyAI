@@ -162,7 +162,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
         </p>
         <div className="loading">Connecting to the game…</div>
         <Link className="button secondary" href={host ? '/host' : '/join'}>
-          Back to {host ? 'your games' : 'join'}
+          Back to {host ? 'your boards' : 'join'}
         </Link>
       </div>
     );
@@ -187,7 +187,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
         {s.paused
           ? 'PAUSED'
           : answerClock
-            ? 'ANSWER DEADLINE'
+            ? 'RESPONSE DEADLINE'
             : s.phase === 'answering'
               ? 'TIMER PAUSED'
               : 'TIME REMAINING'}
@@ -248,7 +248,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
       </p>
       {s.finalAnswer && !s.tiebreaker?.winnerId && (
         <div className="answer-reveal">
-          <small>FINAL JEOPARDY ANSWER</small>
+          <small>FINAL JEOPARDY · CORRECT RESPONSE</small>
           <h2>{s.finalAnswer}</h2>
         </div>
       )}
@@ -262,7 +262,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
       <div className="results-actions">
         {host && <DownloadResults id={s.id} />}
         <Link className="button primary" href={host ? '/host' : '/'}>
-          Back to {host ? 'your games' : 'home'} <ArrowRight size={16} />
+          Back to {host ? 'your boards' : 'home'} <ArrowRight size={16} />
         </Link>
       </div>
     </div>
@@ -275,7 +275,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
       <div className="session-topline">
         <Link className="back-link" href={host ? '/host' : '/'}>
           <ArrowLeft size={15} />
-          {host ? 'Your games' : 'Home'}
+          {host ? 'Your boards' : 'Home'}
         </Link>
         {!audience && !ended && <KeepAwake key={id} />}
         <div className="button-row session-connection-controls">
@@ -380,9 +380,9 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
             {control && (
               <div className="lobby-controls">
                 <label className="answer-limit-setting">
-                  Answer deadline after buzzing
+                  Response deadline after buzzing
                   <select
-                    aria-label="Answer deadline after buzzing"
+                    aria-label="Response deadline after buzzing"
                     value={s.answerLimitSeconds ?? 0}
                     disabled={busy || s.paused}
                     onChange={(e) =>
@@ -398,8 +398,9 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                   </select>
                 </label>
                 <p className="muted small">
-                  An expired answer counts as incorrect and deducts the tile value. Daily Double and
-                  Final Jeopardy are unchanged.
+                  After a regular buzz, an expired response deducts the clue value. In a tiebreaker,
+                  it counts as a miss without changing scores. Daily Double and Final Jeopardy are
+                  unchanged.
                 </p>
                 <button
                   className="button secondary full"
@@ -521,17 +522,32 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
             )}
             {s.lastTimeout && (
               <p className="timeout-notice" role="status">
-                Answer time expired for{' '}
-                {s.players.find((p) => p.id === s.lastTimeout?.playerId)?.name}. The tile value was
+                Response time expired for{' '}
+                {s.players.find((p) => p.id === s.lastTimeout?.playerId)?.name}. The clue value was
                 deducted.{s.phase === 'question' ? ' Other eligible players can buzz now.' : ''}
               </p>
             )}
+            {['board', 'question', 'answering', 'dailyWager', 'dailyAnswer', 'reveal'].includes(
+              s.phase,
+            ) &&
+              s.nextSelectorId && (
+                <div className="selection-indicator panel" role="status" aria-live="polite">
+                  <strong>
+                    Next selection: {s.players.find((p) => p.id === s.nextSelectorId)?.name}
+                  </strong>
+                  <span>
+                    {player && s.nextSelectorId === userId
+                      ? 'Your choice — tell the host the category and value.'
+                      : 'The host selects the tile on the board.'}
+                  </span>
+                </div>
+              )}
             {s.phase === 'board' &&
               (player ? (
                 <div className="panel player-wait">
                   <Zap size={38} />
                   <h2>Ready when you are.</h2>
-                  <p className="muted">Your host is choosing the next question.</p>
+                  <p className="muted">Tell the host which clue to select when it is your turn.</p>
                 </div>
               ) : (
                 <div className="board-scroll">
@@ -594,10 +610,10 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                       ? 'Waiting for the game to resume'
                       : s.phase === 'answering'
                         ? s.respondent === userId
-                          ? 'Give your answer to the host.'
+                          ? 'Give your response to the host.'
                           : `${answering?.name} is answering`
                         : s.attempted.includes(userId)
-                          ? 'You’ve already answered this question'
+                          ? 'You’ve already attempted this clue'
                           : remaining <= 0
                             ? 'Time’s up'
                             : 'Know it? Make your move.'}
@@ -650,7 +666,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                   )}
                   {host && (
                     <details className="host-answer">
-                      <summary>Private host answer</summary>
+                      <summary>Private correct response</summary>
                       <p>{s.question?.answer}</p>
                       <small>{s.question?.notes}</small>
                     </details>
@@ -707,7 +723,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                       />
                     </label>
                     <button className="button primary" disabled={busy || s.paused}>
-                      Lock wager & reveal question
+                      Lock wager & reveal clue
                     </button>
                   </form>
                 ) : (
@@ -742,7 +758,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                 )}
                 {host && (
                   <details className="host-answer">
-                    <summary>Private host answer</summary>
+                    <summary>Private correct response</summary>
                     <p>{s.question?.answer}</p>
                   </details>
                 )}
@@ -750,7 +766,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
             )}
             {s.phase === 'reveal' && (
               <section className="panel reveal-stage">
-                <span className="eyebrow">THE ANSWER IS</span>
+                <span className="eyebrow">CORRECT RESPONSE</span>
                 <h2>{s.question?.answer}</h2>
                 <p className="muted">{s.question?.prompt}</p>
                 <Standings s={s} />
@@ -797,7 +813,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                     </button>
                     <p role="status">
                       {finalEntry?.wager !== undefined
-                        ? `Your wager: ${money(finalEntry.wager)}. You can change it until the host reveals the question.`
+                        ? `Your wager: ${money(finalEntry.wager)}. You can change it until the host reveals the clue.`
                         : 'Your wager stays private until the reveal.'}
                     </p>
                   </form>
@@ -830,7 +846,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                           void send({ type: 'openFinal' });
                         }}
                       >
-                        Lock wagers & reveal question <ArrowRight size={16} />
+                        Lock wagers & reveal clue <ArrowRight size={16} />
                       </button>
                     )}
                   </>
@@ -863,7 +879,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                     }}
                   >
                     <label>
-                      Your answer
+                      Your response
                       <textarea
                         autoFocus
                         rows={4}
@@ -883,10 +899,10 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                         className="button primary"
                         disabled={busy || s.paused || remaining <= 0 || !connected}
                       >
-                        Save answer
+                        Save response
                       </button>
                       <span className="small" role="status">
-                        {draftStatus || 'Your latest saved answer locks when time runs out.'}
+                        {draftStatus || 'Your latest saved response locks when time runs out.'}
                       </span>
                     </div>
                     <p className="muted small">
@@ -896,7 +912,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                   </form>
                 ) : (
                   <p className="muted">
-                    Players are writing their answers. The latest saved answer locks at zero.
+                    Players are writing their responses. The latest saved response locks at zero.
                   </p>
                 )}
               </section>
@@ -906,8 +922,8 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                 <span className="eyebrow">FINAL JEOPARDY · CORRECT RESPONSE</span>
                 <h2>{s.finalAnswer}</h2>
                 <p>
-                  Answers are locked. Review the correct response before revealing each player’s
-                  answer.
+                  Responses are locked. Review the correct response before revealing each player’s
+                  response.
                 </p>
                 {control && (
                   <button
@@ -915,10 +931,10 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                     disabled={busy || s.paused}
                     onClick={() => void send({ type: 'reviewFinal' })}
                   >
-                    Reveal player answers <ArrowRight size={17} />
+                    Reveal player responses <ArrowRight size={17} />
                   </button>
                 )}
-                {!host && <p role="status">Waiting for the host to reveal player answers.</p>}
+                {!host && <p role="status">Waiting for the host to reveal player responses.</p>}
               </section>
             )}
             {s.phase === 'finalReview' && (
@@ -930,18 +946,18 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                     {host || audience ? (
                       <>
                         <div className="answer-reveal">
-                          <small>SUBMITTED ANSWER</small>
+                          <small>SUBMITTED RESPONSE</small>
                           <h3>
                             {s.finalEntries[current.id]?.text?.trim() ||
                               (host
                                 ? finalSubmissionStatus(s.finalEntries[current.id])
-                                : '(No answer submitted)')}
+                                : '(No response submitted)')}
                           </h3>
                           <p>Wager: {money(s.finalEntries[current.id]?.wager ?? 0)}</p>
                         </div>
                         {host && (
                           <details className="host-answer">
-                            <summary>Correct answer</summary>
+                            <summary>Correct response</summary>
                             <p>{s.finalAnswer}</p>
                           </details>
                         )}
@@ -980,14 +996,14 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                       </>
                     ) : (
                       <p className="muted">
-                        The host is reviewing this answer. Your results appear below after each
+                        The host is reviewing this response. Your results appear below after each
                         judgment.
                       </p>
                     )}
                   </>
                 ) : (
                   <>
-                    <h2>Every answer is in.</h2>
+                    <h2>All responses have been judged.</h2>
                     {control && (
                       <button
                         className="button primary"
@@ -1010,7 +1026,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                     .map((p) => (
                       <div className="final-result" key={p.id}>
                         <b>{p.name}</b>
-                        <span>{s.finalEntries[p.id]?.text?.trim() || '(No answer)'}</span>
+                        <span>{s.finalEntries[p.id]?.text?.trim() || '(No response)'}</span>
                         <span className={s.finalEntries[p.id]?.correct ? 'positive' : 'negative'}>
                           {s.finalEntries[p.id]?.correct ? '+' : '−'}
                           {money(s.finalEntries[p.id]?.wager ?? 0)}
@@ -1044,13 +1060,13 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                         onClick={() => {
                           if (
                             confirm(
-                              'Reveal the answer and close this question without another score change?',
+                              'Reveal the correct response and close this clue without another score change?',
                             )
                           )
                             void send({ type: 'reveal' });
                         }}
                       >
-                        Reveal & close question
+                        Reveal & close clue
                       </button>
                     )}
                     {s.canUndo && (
@@ -1059,7 +1075,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                         disabled={busy || s.paused}
                         onClick={() => void send({ type: 'undo' })}
                       >
-                        <RotateCcw size={16} /> Correct last judgment
+                        <RotateCcw size={16} /> Undo last judgment
                       </button>
                     )}
                     <Link className="button secondary full" href={`/display/${id}`} target="_blank">
@@ -1077,7 +1093,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                           void send({ type: 'end' });
                       }}
                     >
-                      End game
+                      End session
                     </button>
                   </div>
                 </>

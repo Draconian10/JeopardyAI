@@ -30,14 +30,14 @@ function answer(s: ReturnType<typeof fixture>, text: string, now = NOW) {
 }
 describe('Final submission status and privacy', () => {
   it('distinguishes missing, blank received, saved, and judged incorrect independently', () => {
-    expect(finalSubmissionStatus({ text: '' })).toBe('No answer received');
-    expect(finalSubmissionStatus({ text: ' ', submittedAt: NOW })).toBe('Blank answer saved');
+    expect(finalSubmissionStatus({ text: '' })).toBe('No response received');
+    expect(finalSubmissionStatus({ text: ' ', submittedAt: NOW })).toBe('Blank response saved');
     expect(finalSubmissionStatus({ text: 'Paris', judged: true, correct: false })).toBe(
-      'Answer saved',
+      'Response saved',
     );
-    expect(finalSubmissionStatus(undefined)).toBe('No answer received');
+    expect(finalSubmissionStatus(undefined)).toBe('No response received');
   });
-  it('records server acceptance for blanks and nonblank answers, but rejects late writes', () => {
+  it('records server acceptance for blanks and nonblank responses, but rejects late writes', () => {
     const blank = answer(fixture(), '');
     expect(blank.final[A].submittedAt).toBe(NOW);
     const saved = answer(blank, 'Paris', NOW + 1000);
@@ -60,7 +60,7 @@ describe('Final submission status and privacy', () => {
     s.phase = 'finalReview';
     s.deadline = undefined;
     s = JSON.parse(JSON.stringify(s));
-    expect(finalSubmissionStatus(s.final[A])).toBe('Blank answer saved');
+    expect(finalSubmissionStatus(s.final[A])).toBe('Blank response saved');
     expect(() =>
       applyCommand(
         s,
@@ -73,7 +73,7 @@ describe('Final submission status and privacy', () => {
           actionId: crypto.randomUUID(),
         },
       ),
-    ).toThrow('blank answer');
+    ).toThrow('blank response');
   });
 });
 

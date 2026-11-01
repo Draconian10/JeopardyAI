@@ -64,7 +64,7 @@ function DashboardInner() {
           </p>
         </div>
         <Link className="button primary" href="/host/edit/new">
-          <Plus size={18} /> Create new game
+          <Plus size={18} /> Create new board
         </Link>
       </div>
       <p role="alert" className="error">
@@ -89,9 +89,9 @@ function DashboardInner() {
             <div className="empty-state">
               <LayoutGrid size={40} />
               <h2>Your next great game starts here.</h2>
-              <p>Create a custom board, or load the starter questions in the editor.</p>
+              <p>Create a custom board, or load the starter clues in the editor.</p>
               <Link className="button primary" href="/host/edit/new">
-                Create your first game <ArrowRight size={18} />
+                Create your first board <ArrowRight size={18} />
               </Link>
             </div>
           ) : (
@@ -177,7 +177,7 @@ function DashboardInner() {
                               }}
                             >
                               <Play size={16} />
-                              {active.length ? 'New session' : 'Start game'}
+                              {active.length ? 'New session' : 'Start session'}
                             </button>
                           )}
                           <Link
@@ -239,7 +239,7 @@ function DashboardInner() {
           )}
           <div className="section-line history-heading">
             <h2>
-              <Trophy size={20} /> Previous games
+              <Trophy size={20} /> Previous sessions
             </h2>
           </div>
           {data.sessions.filter((s) => !s.active).length ? (

@@ -57,7 +57,7 @@ export const questionJsonSchema = z
         ctx.addIssue({
           code: 'custom',
           path: ['categories', index, 'questions'],
-          message: 'Every category must have the same number of questions.',
+          message: 'Every category must have the same number of clues.',
         });
       const key = category.name.toLocaleLowerCase('en-US');
       if (names.has(key))
@@ -72,7 +72,7 @@ export const questionJsonSchema = z
       ctx.addIssue({
         code: 'custom',
         path: ['categories'],
-        message: 'Mark exactly one question with "dailyDouble": true.',
+        message: 'Mark exactly one clue with "dailyDouble": true.',
       });
   });
 export type QuestionJson = z.infer<typeof questionJsonSchema>;

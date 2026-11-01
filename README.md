@@ -5,16 +5,16 @@ A responsive, self-hostable Jeopardy game for **Next.js + Vercel + Supabase**. T
 ## What is implemented
 
 - Host email/password accounts and guest player identities.
-- Saved boards, editable categories and values, 1–8 columns and rows, duplicate/archive actions, and a complete 30-question starter board.
+- Saved boards, editable categories and values, 1–8 columns and rows, duplicate/archive actions, and a complete 30-clue starter board.
 - Paste category-based JSON to create a complete board, with validation, an editable example, and database-stored JSON for saved games and hosted sessions.
 - Server autosave for existing boards; explicit initial Save with a six-digit host PIN. Incomplete drafts can be saved, but cannot be started.
 - Lobby with a separate six-digit join code, QR code, player list, connection status, lobby lock, and removal.
 - Server-authoritative, atomic first-buzz arbitration and 30-second windows.
-- Correct/incorrect scoring, remaining-time resumption after a miss, one attempt per player per question, and answer reveal.
+- Correct/incorrect scoring, remaining-time resumption after a miss, one attempt per player per clue, and correct-response reveal.
 - Hidden Daily Double, host-selected participant, and wagers capped at the absolute score.
 - Final Jeopardy category → private wagers → 30-second written answers → individual judging → sudden-death buzzer clues for tied leaders.
-- Animated standings after every question with score changes, moving player rows, and rank movement; reduced-motion preferences are respected.
-- End sessions directly from the host dashboard, unscored practice buzzers, and an optional per-session answer deadline.
+- Animated standings after every clue with score changes, moving player rows, and rank movement; reduced-motion preferences are respected.
+- End sessions directly from the host dashboard, unscored practice buzzers, and an optional per-session response deadline.
 - Persistent sessions, automatic host-disconnect pause, PIN-protected Resume, explicit Continue, and one controlling host tab.
 - Private audience display, keyboard buzzer, optional sound/vibration, responsive layouts, reduced-motion support.
 
@@ -58,7 +58,7 @@ Generate a rate-limit secret with `openssl rand -hex 32`, then run:
 npm run dev
 ```
 
-Open `http://localhost:3000`. Create a host account, confirm your email, then select **Create new game**. For a quick start, select **Load starter board**, set a six-digit host PIN, and save. Return to **Your boards** to start a session.
+Open `http://localhost:3000`. Create a host account, confirm your email, then select **Create new board**. For a quick start, select **Load starter board**, set a six-digit host PIN, and save. Return to **Your boards** to start a session.
 
 Use a separate browser profile/private window or a phone for each player. A host account cannot join its own session as a player. Keep the guest browser's site data to preserve that player's identity and reconnection ability.
 
@@ -74,9 +74,9 @@ No long-running WebSocket server is deployed inside the app. Vercel handles shor
 
 ## Import questions from JSON
 
-In **Create new game** (or an existing board editor), select **Import JSON**. Paste your JSON or choose **Load JSON example**, then select **Validate & apply JSON**. A valid import replaces the board only after confirmation. Enter the host PIN separately and save the new game; existing games also autosave after import.
+In **Create new board** (or an existing board editor), select **Import JSON**. Paste your JSON or choose **Load JSON example**, then select **Validate & apply JSON**. A valid import replaces the board only after confirmation. Enter the host PIN separately and save the new game; existing games also autosave after import.
 
-Use the complete [example](examples/question-import.json) and [format guide](docs/question-json.md). Imports require 1–8 unique categories, 1–8 questions per category with the same count in every category, valid point values, exactly one Daily Double, and a complete Final Jeopardy question. Errors do not replace your current board.
+Use the complete [example](examples/question-import.json) and [format guide](docs/question-json.md). Imports require 1–8 unique categories, 1–8 questions per category with the same count in every category, valid clue values, exactly one Daily Double, and a complete Final Jeopardy clue. Errors do not replace your current board.
 
 Apply `supabase/migrations/002_question_json.sql` to an existing database before using this feature. PostgreSQL stores canonical category-based JSON in **`games.question_json`** and **`sessions.question_json`**. Stored generated columns automatically backfill old records and stay synchronized with manual edits, duplication, and autosave. The session copy remains based on its frozen board, so editing a saved game cannot change an ongoing match. Whitespace and omitted optional fields are normalized; the original pasted formatting is not stored. These columns contain answers and retain the existing private access rules.
 
@@ -84,24 +84,24 @@ Apply `supabase/migrations/002_question_json.sql` to an existing database before
 
 Closing the host window never ends a session. Every accepted action is persisted to PostgreSQL before success is reported. The host controller heartbeats every five seconds. After **15 seconds without a heartbeat**, the session is considered disconnected and paused at that boundary.
 
-When the host returns, choose **Host Game → the board's In Progress session → Resume**, enter the session's host PIN, and select **Continue game**. The same session ID, join code, players, scores, current question, pending respondent, wagers, answers, and remaining time are restored. The session PIN is a snapshot of the PIN at launch; changing the saved board's PIN does not change an existing session's PIN.
+When the host returns, choose **Host Game → the board's In Progress session → Resume**, enter the session's host PIN, and select **Continue game**. The same session ID, join code, players, scores, current clue, pending respondent, wagers, answers, and remaining time are restored. The session PIN is a snapshot of the PIN at launch; changing the saved board's PIN does not change an existing session's PIN.
 
-If all browsers are closed, the database is reconciled on the next read: the effective pause instant is still the last host heartbeat plus 15 seconds. A timer expiring before that instant resolves normally. Time is not retroactively restored. Final answer drafts already received remain saved; no new answers are accepted while paused.
+If all browsers are closed, the database is reconciled on the next read: the effective pause instant is still the last host heartbeat plus 15 seconds. A timer expiring before that instant resolves normally. Time is not retroactively restored. Final response drafts already received remain saved; no new answers are accepted while paused.
 
 Taking control in another tab pauses the game and invalidates the previous controller's commands. A finished or explicitly ended session remains viewable in history but cannot resume. In-progress sessions have no automatic deletion or gameplay expiry.
 
 ## Game rules
 
-- Selecting a regular tile immediately displays the question and opens a 30-second buzzer window.
-- First valid server-accepted buzz wins. The 30-second buzzer timer pauses during the spoken answer. By default spoken answers have no deadline; the host can enable a separate 5–60 second answer deadline in the lobby.
-- Correct: award the tile value and reveal the answer. Incorrect: deduct the tile value, exclude that player for this question, and resume the **remaining** time with a fresh buzzer-window ID.
-- When time expires or everyone has missed, reveal the answer. Host chooses when to return to the board.
-- Daily Double: no buzzer; host chooses the player, locks the wager, reveals the question, and judges the spoken answer.
+- Selecting a regular tile immediately displays the clue and opens a 30-second buzzer window.
+- First valid server-accepted buzz wins. The 30-second buzzer timer pauses during the spoken answer. By default spoken answers have no deadline; the host can enable a separate 5–60 second response deadline in the lobby.
+- Correct: award the clue value and reveal the correct response. Incorrect: deduct the clue value, exclude that player for this question, and resume the **remaining** time with a fresh buzzer-window ID.
+- When time expires or everyone has missed, reveal the correct response. Host chooses when to return to the board.
+- Daily Double: no buzzer; host chooses the player, locks the wager, reveals the clue, and judges the spoken answer.
 - Daily Double and Final wager range: **0 through absolute current/pre-Final score**, whole dollars. A score of zero permits only a zero wager. Negative-score players are eligible.
-- Final: host reveals the category; players save/change private wagers until the host opens the question. Missing wagers default to zero after host confirmation.
-- Final answers autosave at most twice a second, one request at a time. Players may also explicitly Save. **Only text successfully received before the server deadline counts**; unsent keystrokes are not guaranteed. Latest received text locks at expiry; blank answers are incorrect.
-- Final review proceeds from lowest to highest pre-Final score. Each answer/wager becomes public when that player is selected for Final review. A unique highest final score wins. A tie for first enters sudden death: the host supplies a category/clue/answer, only tied leaders buzz, and only a correct response wins. Misses do not change scores or award a default win. If everyone misses or the 30-second buzzer window expires, reveal the answer and prepare another clue; all tied leaders are eligible again. The optional spoken-answer deadline also applies without score deductions.
-- The host can correct the last regular/Daily Double judgment before another accepted buzz or the next question. The audit history retains the correction action. Final judgments are locked after approval/rejection.
+- Final: host reveals the category; players save/change private wagers until the host opens the clue. Missing wagers default to zero after host confirmation.
+- Final responses autosave at most twice a second, one request at a time. Players may also explicitly Save. **Only text successfully received before the server deadline counts**; unsent keystrokes are not guaranteed. Latest received text locks at expiry; blank responses are incorrect.
+- Final review proceeds from lowest to highest pre-Final score. Each answer/wager becomes public when that player is selected for Final review. A unique highest final score wins. A tie for first enters sudden death: the host supplies a category/clue/answer, only tied leaders buzz, and only a correct response wins. Misses do not change scores or award a default win. If everyone misses or the 30-second buzzer window expires, reveal the correct response and prepare another clue; all tied leaders are eligible again. The optional spoken-response deadline also applies without score deductions.
+- The host can correct the last regular/Daily Double judgment before another accepted buzz or the next clue. The audit history retains the correction action. Final judgments are locked after approval/rejection.
 - Up to 50 player seats per session; intended for casual game nights. See architecture notes before increasing this limit or operating many concurrent rooms.
 
 ## Structure
@@ -163,8 +163,8 @@ Going Home does not remove a player from their session. Home and Join Game show 
 
 - **Dashboard End session:** End any unfinished session beside its Resume button after explicit confirmation. The signed-in owner is required, but no game PIN or controller claim is needed. Scores/history remain saved, the join code becomes inactive, and all connected views receive the update. Ending does not delete the board.
 - **Practice:** In the host lobby, select Start practice round. Everyone gets a 30-second practice buzzer window. First accepted buzz wins the practice attempt; the host can reset it repeatedly or Finish practice to return to the lobby. No points, question consumption, Daily Double, or Final wagers are affected. Players may keep joining while practice is running if the lobby is unlocked.
-- **Answer deadline:** In the lobby choose Off (default), or 5, 10, 15, 20, 30, 45, or 60 seconds. It applies only after a successful regular-question buzz. The server automatically marks an expired response incorrect, deducts the tile value once, excludes that respondent, and reopens the remaining buzzer time for others. When no eligible player remains, the answer is revealed. Daily Double and Final Jeopardy keep their existing rules. Settings persist with the session; existing sessions default to Off.
-- **Pause/resume:** Both the answer deadline and buzzer window pause during host pause/disconnection and restore remaining time on Continue. An expiry before host-loss detection resolves normally. Correct Last Judgment can reverse a timeout before another buzz; this hands the restored attempt back to the host for manual judgment, without restarting the deadline.
+- **Response deadline:** In the lobby choose Off (default), or 5, 10, 15, 20, 30, 45, or 60 seconds. It applies after a successful regular-clue or tiebreaker buzz. In a tiebreaker, expiry counts as a miss without score deductions. For regular clues, the server automatically marks an expired response incorrect, deducts the clue value once, excludes that respondent, and reopens the remaining buzzer time for others. When no eligible player remains, the answer is revealed. Daily Double and Final Jeopardy keep their existing rules. Settings persist with the session; existing sessions default to Off.
+- **Pause/resume:** Both the response deadline and buzzer window pause during host pause/disconnection and restore remaining time on Continue. An expiry before host-loss detection resolves normally. Undo Last Judgment can reverse a timeout before another buzz; this hands the restored attempt back to the host for manual judgment, without restarting the deadline.
 - **Standings:** Rows move to their new ranks as scores change, with highlighted score updates and question score deltas. The reveal screen animates from the pre-question order; the live sidebar animates from the last displayed positions. With reduced motion enabled, rankings update immediately.
 
 These additions use existing session JSON and CAS persistence; **no new Supabase migration is required**.
@@ -177,7 +177,7 @@ Completed games show a brief, silent gold-and-purple confetti burst and a refine
 
 ## Download results
 
-On a completed or explicitly ended session, the signed-in host can select **Download results (CSV)** on the results screen. Past results remain available through **Host Game → session history**. The download contains one table with a `Record type` column: **Final standing**, **Question summary** (one player per played question, including zero changes), and **Score event** (individual applied judgments/timeouts). Filter by record type before summing deltas; summaries and events describe the same scoring at different levels.
+On a completed or explicitly ended session, the signed-in host can select **Download results (CSV)** on the results screen. Past results remain available through **Host Game → session history**. The download contains one table with a `Record type` column: **Final standing**, **Clue summary** (one player per played question, including zero changes), and **Score event** (individual applied judgments/timeouts). Filter by record type before summing deltas; summaries and events describe the same scoring at different levels.
 
 The file includes ranks (equal scores share a rank), player IDs/names, removal status, session ID/code, category, question text, tile value, numeric score changes, running scores and UTC event timestamps. Daily Double/Final wagers are reflected in the applied deltas. Removed players retain their history but receive no final rank. Ended sessions are marked **Ended early**; unplayed board questions and answer text are excluded. CSV quoting handles commas, quotes and multiline names; UTF-8 and formula-like text are handled for spreadsheet use. Players and other hosts cannot download another host's results. No database migration is needed.
 
@@ -185,7 +185,7 @@ Fresh sessions now open the lobby after a single PIN check. The launching tab re
 
 ## Sudden death and projector readability
 
-After every Final answer has been judged, a tie changes the host action to **Start sudden-death tiebreaker**. Save optional backup clues in **Create/Edit Game → Sudden-death tiebreakers**, or include them in the JSON `tiebreakers` array. During a tie, select **Present next saved clue**. The list is consumed in order and its position survives resume. The host can enter a custom clue if the list is empty or exhausted. There is no dollar value or wager; the first tied leader to buzz and answer correctly wins. Nonleaders watch. A miss excludes that player only for the current clue. If no one succeeds, select **Prepare another clue**; no player wins by default. Final standings, confetti and the results CSV identify the tiebreaker winner while keeping monetary scores unchanged. The CSV also includes tiebreaker responses and unresolved-round summaries, with zero score changes. All accepted tiebreaker state survives host disconnection and PIN-protected resume.
+After every Final response has been judged, a tie changes the host action to **Start sudden-death tiebreaker**. Save optional backup clues in **Create/Edit Game → Sudden-death tiebreakers**, or include them in the JSON `tiebreakers` array. During a tie, select **Present next saved clue**. The list is consumed in order and its position survives resume. The host can enter a custom clue if the list is empty or exhausted. There is no dollar value or wager; the first tied leader to buzz and answer correctly wins. Nonleaders watch. A miss excludes that player only for the current clue. If no one succeeds, select **Prepare another clue**; no player wins by default. Final standings, confetti and the results CSV identify the tiebreaker winner while keeping monetary scores unchanged. The CSV also includes tiebreaker responses and unresolved-round summaries, with zero score changes. All accepted tiebreaker state survives host disconnection and PIN-protected resume.
 
 During a regular or tiebreaker buzzed response, the clue is removed from the host and audience payload/display until a miss reopens it or a reveal occurs. Private host answers remain available for judging. Stage-specific action errors clear as play moves to a new stage, question or buzzer window; polling the same stage does not dismiss an applicable validation error.
 
@@ -201,8 +201,14 @@ For existing Supabase installations, run [`003_saved_tiebreakers.sql`](supabase/
 
 Host and player session screens have an optional **Keep screen awake** button, initially Off. **Active** means the browser has granted a screen wake lock. It releases on session end, navigation or disable, and reacquires when returning to a visible page after opting in. Unsupported/insecure browsers show a screen-timeout fallback; browser denials and OS releases show a retryable status. This is a best-effort screen lock, not a guarantee against manual locking, switching apps, power-saving policies or browser suspension. Existing host heartbeat/disconnect pause rules still apply. No sound, scoring, timer or reconnect behavior is changed.
 
-During Final answering and review, only the host sees **N of M answers saved** and per-player received/blank/missing statuses. The count includes nonblank text already accepted by the server, not unsent keystrokes. Received status and host correctness judgments are separate: a saved answer can be incorrect. Blank answers remain ineligible for Correct. Accepted saves record a server timestamp, including deliberate blank saves; legacy nonblank answers still count without a timestamp. Audience/player projections keep later players' answers hidden until their review turn and never expose another player's submission timestamp. No Supabase migration is required.
+During Final responseing and review, only the host sees **N of M answers saved** and per-player received/blank/missing statuses. The count includes nonblank text already accepted by the server, not unsent keystrokes. Received status and host correctness judgments are separate: a saved answer can be incorrect. Blank answers remain ineligible for Correct. Accepted saves record a server timestamp, including deliberate blank saves; legacy nonblank responses still count without a timestamp. Audience/player projections keep later players' answers hidden until their review turn and never expose another player's submission timestamp. No Supabase migration is required.
 
 During Final review, the audience display shows the current named player's submitted answer and wager before the host judges it. Later players' answers remain hidden until their turn; the correct Final solution is shown first in the preceding Correct response stage, and judging controls remain private to the host. Submission acceptance timestamps stay private. On phones, navigation/connection/mute share one aligned row and the screen-awake control occupies a separate full-width row.
 
-Final answer time expiry now opens a **Correct response** screen for everyone before any individual response is revealed. The host selects **Reveal player answers** to start review; this stage survives pause/resume and does not change points or deadlines. In a tiebreaker win, the results screen shows only the winning tiebreaker answer; normal results retain the Final Jeopardy answer. Player layouts use a wider laptop card and card-relative clue typography with bounded timers, while phones keep the compact interface and audience screens retain projection sizes. No database migration is required.
+Final response time expiry now opens a **Correct response** screen for everyone before any individual response is revealed. The host selects **Reveal player answers** to start review; this stage survives pause/resume and does not change points or deadlines. In a tiebreaker win, the results screen shows only the winning tiebreaker answer; normal results retain the Final Jeopardy answer. Player layouts use a wider laptop card and card-relative clue typography with bounded timers, while phones keep the compact interface and audience screens retain projection sizes. No database migration is required.
+
+## Clue selection and terminology
+
+Starting play randomly chooses an active player for the first selection. A correct regular or Daily Double response transfers selection to that respondent, even for a zero wager. Misses, timeouts, unanswered clues and host-forced reveals retain the previous selector. Undoing a judgment restores the selector as well as scores. The host continues clicking tiles; the “Next selection” indicator is visible on host, player and audience screens during board play. Practice and Final Jeopardy do not alter board selection. Selection persists across reloads and host resume. Older running sessions without a saved selector use the first active player as a stable fallback until a correct response transfers selection. No migration is required.
+
+UI terminology uses **Clue**, **Correct response**, **Your response**, **Clue value**, **Score** and **Wager**. Saved content is a **Board**; a playthrough is a **Session**. Existing JSON keys (`question`, `answer`), API commands and database fields stay compatible. Response-deadline help distinguishes scored regular misses from unscored tiebreaker misses. Response phrasing remains a host judgment rather than an automatic question-form check.

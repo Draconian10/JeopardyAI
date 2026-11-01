@@ -19,11 +19,11 @@ export function resultsCsv(s: Session): string {
     'Player ID',
     'Player',
     'Removed',
-    'Question number',
-    'Question ID',
+    'Clue number',
+    'Clue ID',
     'Category',
-    'Question',
-    'Tile value',
+    'Clue',
+    'Clue value',
     'Score change',
     'Score after',
     'Detail',
@@ -140,7 +140,7 @@ export function resultsCsv(s: Session): string {
     for (const p of s.players) {
       const own = events.filter((e) => e.playerId === p.id);
       row(
-        'Question summary',
+        'Clue summary',
         p.id,
         '',
         question,
@@ -165,7 +165,7 @@ export function resultsCsv(s: Session): string {
           attempt.correct
             ? 'Correct; tiebreaker winner'
             : attempt.timedOut
-              ? 'Answer time expired; no points deducted'
+              ? 'Response time expired; no score change'
               : 'Incorrect; no points deducted',
           new Date(attempt.at).toISOString(),
         );
