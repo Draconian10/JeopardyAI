@@ -2769,3 +2769,85 @@ input[type='checkbox'] {
 .audience-container .question-stage .answer-reveal p {
   font-size: clamp(20px, 1.6vw, 30px);
 }
+
+/* Player sizing follows its own card width, independent of projection typography. */
+.session-container.player-container {
+  max-width: 880px;
+}
+.player-container .player-game {
+  container-type: inline-size;
+}
+.session-container.player-container .question-stage {
+  width: 100%;
+  min-width: 0;
+  padding: 24px;
+  padding: clamp(22px, 4cqi, 38px);
+}
+.session-container.player-container .question-stage > h2 {
+  font-size: 28px;
+  font-size: clamp(25px, 4.5cqi, 36px);
+  line-height: 1.4;
+  margin: 24px 0;
+}
+.session-container.player-container .question-top {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+}
+.session-container.player-container .question-top > .eyebrow {
+  font-size: 14px;
+  line-height: 1.5;
+  letter-spacing: 0.06em;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.session-container.player-container .timer {
+  min-width: 0;
+  flex-shrink: 0;
+}
+.session-container.player-container .timer > span {
+  font-size: 30px;
+  white-space: nowrap;
+}
+.session-container.player-container .timer small {
+  font-size: 10px;
+}
+.player-container .final-stage form {
+  width: 100%;
+  min-width: 0;
+}
+.player-container .final-stage textarea {
+  width: 100%;
+  min-width: 0;
+}
+.session-container.player-container .question-stage > .eyebrow {
+  font-size: 14px;
+}
+@media (max-width: 600px) {
+  .session-container.player-container {
+    max-width: 540px;
+  }
+  .session-container.player-container .question-top {
+    gap: 10px;
+  }
+  .session-container.player-container .question-top > .eyebrow {
+    font-size: 12px;
+  }
+  .session-container.player-container .timer > span {
+    font-size: 26px;
+  }
+  .session-container.player-container .timer small {
+    font-size: 9px;
+  }
+}
+.session-container .celebration .answer-reveal {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.session-container .celebration .answer-reveal h2 {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  line-height: 1.45;
+}

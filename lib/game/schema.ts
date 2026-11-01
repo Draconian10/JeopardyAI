@@ -103,6 +103,7 @@ export const commandSchema = z.discriminatedUnion('type', [
   action('wager', { amount: z.number().int().min(0).max(100000000) }),
   action('openFinal', {}),
   action('answer', { text: z.string().max(2000) }),
+  action('reviewFinal', {}),
   action('finalJudge', { playerId: z.string().uuid(), correct: z.boolean() }),
   action('finish', {}),
   action('tieClue', {

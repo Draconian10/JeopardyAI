@@ -29,6 +29,7 @@ const HOST_ACTIONS = new Set([
   'dailyJudge',
   'openFinal',
   'finalJudge',
+  'reviewFinal',
   'finish',
   'undo',
 ]);
@@ -141,7 +142,7 @@ function expire(s: Session) {
     s.remaining = 0;
     s.windowId = undefined;
   } else if (s.phase === 'finalAnswer') {
-    s.phase = 'finalReview';
+    s.phase = 'finalReveal';
     s.deadline = undefined;
     s.remaining = 0;
   }
@@ -508,6 +509,10 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       s.final[player.id].text = cmd.text;
       s.final[player.id].submittedAt = ctx.now;
       break;
+    case 'reviewFinal':
+      phase('finalReveal');
+      s.phase = 'finalReview';
+      break;
     case 'finalJudge': {
       phase('finalReview');
       requireThat(cmd.playerId === finalReviewPlayer(s), 'Review the next player in order.');
@@ -687,13 +692,22 @@ export function viewSession(
           notes: privateHost ? q.notes : undefined,
         }
       : undefined,
-    finalCategory: ['finalWager', 'finalAnswer', 'finalReview', 'finished'].includes(s.phase)
+    finalCategory: ['finalWager', 'finalAnswer', 'finalReveal', 'finalReview', 'finished'].includes(
+      s.phase,
+    )
       ? s.board.final.category
       : undefined,
-    finalPrompt: ['finalAnswer', 'finalReview', 'finished'].includes(s.phase)
+    finalPrompt: ['finalAnswer', 'finalReveal', 'finalReview', 'finished'].includes(s.phase)
       ? s.board.final.prompt
       : undefined,
-    finalAnswer: privateHost || finalDone ? s.board.final.answer : undefined,
+    finalAnswer:
+      privateHost ||
+      finalDone ||
+      ['finalReveal', 'finalReview', 'tieSetup', 'tieQuestion', 'tieAnswer', 'tieReveal'].includes(
+        s.phase,
+      )
+        ? s.board.final.answer
+        : undefined,
     finalEntries: entries,
     finalReviewPlayer: currentReview,
     remaining: s.remaining,

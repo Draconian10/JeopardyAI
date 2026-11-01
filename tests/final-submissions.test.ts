@@ -90,9 +90,10 @@ describe('Final review public reveal', () => {
     expect(audience.finalEntries[A].submittedAt).toBeUndefined();
     expect(audience.finalEntries[B].text).toBeUndefined();
     expect(viewSession(s, A, NOW).finalEntries[B].text).toBeUndefined();
-    expect(audience.finalAnswer).toBeUndefined();
+    expect(audience.finalAnswer).toBe(s.board.final.answer);
     s.phase = 'finalAnswer';
     s.deadline = NOW + 30000;
+    expect(viewSession(s, HOST, NOW, CTRL, true).finalAnswer).toBeUndefined();
     expect(viewSession(s, HOST, NOW, CTRL, true).finalEntries[A].text).toBeUndefined();
   });
   it('advances the public answer after judging and retains earlier reviewed responses', () => {
@@ -120,5 +121,55 @@ describe('Final review public reveal', () => {
       judged: true,
       correct: false,
     });
+  });
+});
+
+describe('correct response before individual Final review', () => {
+  it('reveals the solution without revealing contestant responses until the host continues', () => {
+    let s = answer(fixture(), 'Private response');
+    s.phase = 'finalReveal';
+    s.deadline = undefined;
+    const audience = viewSession(s, HOST, NOW, CTRL, true);
+    expect(audience.finalAnswer).toBe(s.board.final.answer);
+    expect(audience.finalReviewPlayer).toBeUndefined();
+    expect(audience.finalEntries[A].text).toBeUndefined();
+    const ctx = {
+      userId: HOST,
+      controller: CTRL,
+      now: NOW,
+      expectedVersion: s.actionVersion,
+      actionId: crypto.randomUUID(),
+    };
+    expect(() => applyCommand(s, { type: 'finalJudge', playerId: A, correct: false }, ctx)).toThrow(
+      'stage',
+    );
+    expect(() =>
+      applyCommand(s, { type: 'answer', text: 'Late' }, { ...ctx, userId: A }),
+    ).toThrow();
+    expect(() => applyCommand(s, { type: 'reviewFinal' }, { ...ctx, userId: A })).toThrow(
+      'Only the host',
+    );
+    s = applyCommand(s, { type: 'pause' }, ctx);
+    s = JSON.parse(JSON.stringify(s));
+    expect(s.phase).toBe('finalReveal');
+    expect(() =>
+      applyCommand(
+        s,
+        { type: 'reviewFinal' },
+        { ...ctx, expectedVersion: s.actionVersion, actionId: crypto.randomUUID() },
+      ),
+    ).toThrow('paused');
+    s = applyCommand(
+      s,
+      { type: 'continue' },
+      { ...ctx, expectedVersion: s.actionVersion, actionId: crypto.randomUUID() },
+    );
+    s = applyCommand(
+      s,
+      { type: 'reviewFinal' },
+      { ...ctx, expectedVersion: s.actionVersion, actionId: crypto.randomUUID() },
+    );
+    expect(s.phase).toBe('finalReview');
+    expect(s.players[0].score).toBe(100);
   });
 });

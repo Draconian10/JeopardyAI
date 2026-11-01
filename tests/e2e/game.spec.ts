@@ -1406,3 +1406,107 @@ test('mobile session controls use aligned rows without overlap at common phone w
   await page.getByRole('button', { name: 'Enable sound', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Mute sound', exact: true })).toBeVisible();
 });
+
+test('Final correct-response stage appears before the host opens individual responses', async ({
+  page,
+}) => {
+  const s = submissionFixture();
+  s.phase = 'finalReveal';
+  s.deadline = undefined;
+  const current = await mock(page, s);
+  await openControlledHost(page, s);
+  await expect(
+    page
+      .locator('.final-solution')
+      .getByRole('heading', { name: s.board.final.answer, exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText('Secret saved response', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Correct', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Reveal player answers', exact: false }).click();
+  expect(current().phase).toBe('finalReview');
+  await expect(page.getByRole('heading', { name: 'Pat’s moment.', exact: true })).toBeVisible();
+});
+test('audience correct-response stage does not expose private player responses or host controls', async ({
+  page,
+}) => {
+  const s = submissionFixture();
+  s.phase = 'finalReveal';
+  s.deadline = undefined;
+  await mock(page, s);
+  await page.goto(`/display/${s.id}`);
+  await expect(
+    page.getByRole('heading', { name: s.board.final.answer, exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText('Secret saved response', { exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: 'Reveal player answers', exact: false }),
+  ).toHaveCount(0);
+});
+for (const tied of [false, true]) {
+  test(`final results show only the ${tied ? 'winning tiebreaker' : 'Final Jeopardy'} answer`, async ({
+    page,
+  }) => {
+    const s = finalFixture();
+    if (tied)
+      s.tiebreaker = {
+        playerIds: [PLAYER],
+        winnerId: PLAYER,
+        rounds: [
+          {
+            id: crypto.randomUUID(),
+            category: 'Capitals',
+            prompt: 'Capital of Canada?',
+            answer: 'What is Ottawa?',
+            attempts: [],
+            outcome: 'correct',
+            winnerId: PLAYER,
+          },
+        ],
+      };
+    await mock(page, s, PLAYER);
+    await page.goto(`/play/${s.id}`);
+    await expect(page.getByRole('heading', { name: 'Alex wins!', exact: true })).toBeVisible();
+    const blocks = page.locator('.celebration > .answer-reveal');
+    await expect(blocks).toHaveCount(1);
+    await expect(blocks).toContainText(tied ? 'What is Ottawa?' : s.board.final.answer);
+    if (tied) {
+      await expect(blocks).not.toContainText(s.board.final.answer);
+      await expect(blocks).not.toContainText('Capital of Canada?');
+    }
+  });
+}
+test('player Final layout scales with card width across phones, tablets and laptops', async ({
+  page,
+}) => {
+  const s = submissionFixture();
+  s.deadline = Date.now() + 60000;
+  await mock(page, s, PLAYER);
+  await page.goto(`/play/${s.id}`);
+  for (const width of [320, 390, 768, 1366, 1920]) {
+    await page.setViewportSize({ width, height: 1000 });
+    const sizes = await page.locator('.player-container').evaluate((el) => {
+      const card = el.querySelector('.final-stage')!.getBoundingClientRect();
+      const timer = el.querySelector('.final-stage .timer')!.getBoundingClientRect();
+      const title = el.querySelector('.final-stage > h2')!;
+      const category = el.querySelector('.final-stage .eyebrow')!.getBoundingClientRect();
+      return {
+        width: el.getBoundingClientRect().width,
+        font: parseFloat(getComputedStyle(title).fontSize),
+        left: card.left,
+        right: card.right,
+        timerLeft: timer.left,
+        timerRight: timer.right,
+        categoryRight: category.right,
+        scroll: document.documentElement.scrollWidth,
+      };
+    });
+    expect(sizes.timerRight).toBeLessThanOrEqual(sizes.right);
+    expect(sizes.categoryRight).toBeLessThanOrEqual(sizes.timerLeft);
+    expect(sizes.scroll).toBeLessThanOrEqual(width);
+    expect(sizes.font).toBeLessThanOrEqual(36);
+    if (width >= 1366) expect(sizes.width).toBeGreaterThan(700);
+  }
+  await page.getByRole('textbox', { name: 'Your answer', exact: true }).fill('Taj Mahal');
+  await page.getByRole('button', { name: 'Save answer', exact: true }).click();
+  await expect(page.locator('.player-game form [role="status"]')).toHaveText('Saved');
+});

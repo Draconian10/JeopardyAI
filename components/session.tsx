@@ -246,7 +246,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
             : 'Final standings are confirmed. Congratulations!'
           : 'Your game history has been saved.'}
       </p>
-      {s.finalAnswer && (
+      {s.finalAnswer && !s.tiebreaker?.winnerId && (
         <div className="answer-reveal">
           <small>FINAL JEOPARDY ANSWER</small>
           <h2>{s.finalAnswer}</h2>
@@ -255,8 +255,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
       {s.tiebreaker?.winnerId && s.tiebreaker.round && (
         <div className="answer-reveal">
           <small>WINNING TIEBREAKER · {s.tiebreaker.round.category}</small>
-          <h2>{s.tiebreaker.round.prompt}</h2>
-          <p>{s.tiebreaker.round.answer}</p>
+          <h2>{s.tiebreaker.round.answer}</h2>
         </div>
       )}
       <Standings s={s} />
@@ -838,7 +837,9 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                 )}
               </section>
             )}
-            {host && ['finalAnswer', 'finalReview'].includes(s.phase) && <FinalSubmissions s={s} />}
+            {host && ['finalAnswer', 'finalReveal', 'finalReview'].includes(s.phase) && (
+              <FinalSubmissions s={s} />
+            )}
             {s.phase === 'finalAnswer' && (
               <section className="question-stage final-stage">
                 <div className="question-top">
@@ -898,6 +899,26 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                     Players are writing their answers. The latest saved answer locks at zero.
                   </p>
                 )}
+              </section>
+            )}
+            {s.phase === 'finalReveal' && (
+              <section className="question-stage final-stage final-solution">
+                <span className="eyebrow">FINAL JEOPARDY · CORRECT RESPONSE</span>
+                <h2>{s.finalAnswer}</h2>
+                <p>
+                  Answers are locked. Review the correct response before revealing each player’s
+                  answer.
+                </p>
+                {control && (
+                  <button
+                    className="button primary"
+                    disabled={busy || s.paused}
+                    onClick={() => void send({ type: 'reviewFinal' })}
+                  >
+                    Reveal player answers <ArrowRight size={17} />
+                  </button>
+                )}
+                {!host && <p role="status">Waiting for the host to reveal player answers.</p>}
               </section>
             )}
             {s.phase === 'finalReview' && (

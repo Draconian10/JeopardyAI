@@ -306,7 +306,8 @@ describe('Daily Double and Final Jeopardy', () => {
     let s = act(final(), { type: 'openFinal' });
     s.hostSeen = NOW + 25000;
     reconcile(s, NOW + 30000);
-    expect(s.phase).toBe('finalReview');
+    expect(s.phase).toBe('finalReveal');
+    s = act(s, { type: 'reviewFinal' }, HOST, NOW + 30000);
     expect(() =>
       act(s, { type: 'finalJudge', playerId: B, correct: false }, HOST, NOW + 30000),
     ).toThrow('order');
@@ -365,6 +366,7 @@ describe('complete game flow', () => {
     s = act(s, { type: 'answer', text: 'Taj Mahal' }, A, NOW + 1000);
     s.hostSeen = NOW + 25000;
     reconcile(s, NOW + 30000);
+    s = act(s, { type: 'reviewFinal' }, HOST, NOW + 30000);
     s = act(s, { type: 'finalJudge', playerId: B, correct: false }, HOST, NOW + 30000);
     s = act(s, { type: 'finalJudge', playerId: A, correct: true }, HOST, NOW + 30000);
     s = act(s, { type: 'finish' }, HOST, NOW + 30000);

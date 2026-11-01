@@ -40,7 +40,8 @@ stateDiagram-v2
   Reveal --> Board: Tiles remain
   Reveal --> FinalWager: Board complete
   FinalWager --> FinalAnswer: Host locks wagers
-  FinalAnswer --> FinalReview: 30 seconds expire
+  FinalAnswer --> FinalReveal: 30 seconds expire
+  FinalReveal --> FinalReview: Host reveals player answers
   FinalReview --> Finished: Unique leader
   FinalReview --> TieSetup: Leaders tied after judging
   TieSetup --> TieQuestion: Host presents clue
@@ -121,3 +122,5 @@ The strict host-only `tieSavedClue` command atomically reads the next frozen clu
 Accepted `answer` commands set optional `FinalEntry.submittedAt` from server context without changing deadline, pause, scoring or judgment rules. The host-only overview derives nonblank counts from the latest authorized snapshot and distinguishes missing from received blank text. Existing records with nonblank text remain recognized. Submission timestamps remain private to the host and submitting player. Submission counts remain host-only; public answer disclosure follows the review-turn rule below. No database migration is needed.
 
 Final review's `finalReviewPlayer` now defines the public reveal boundary for that one answer/wager. `viewSession` exposes the current entry plus previously judged entries, retaining privacy for future entries and the canonical Final solution. Other players/audience never receive another player's submission timestamp. The audience renderer displays this selected response without private host-answer details or judging controls. Final answering remains private; judgment order, scoring and deadlines are unchanged.
+
+`finalAnswer` expiry transitions to durable `finalReveal`, publishing the canonical Final solution without a `finalReviewPlayer` or other players' responses. The strict host-only/versioned `reviewFinal` action advances to the existing review order. Pause/claim/continue preserve the solution stage; answer writes and judgments remain rejected there. Existing records already in `finalReview` stay compatible. Final results choose one answer block based on the saved tiebreaker winner. Player container width and typography are scoped independently of audience projection styles, with a flexible category column and nonshrinking bounded timer.

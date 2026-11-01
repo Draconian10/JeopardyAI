@@ -12,6 +12,7 @@ export type Phase =
   | 'reveal'
   | 'finalWager'
   | 'finalAnswer'
+  | 'finalReveal'
   | 'finalReview'
   | 'tieSetup'
   | 'tieQuestion'
