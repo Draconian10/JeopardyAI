@@ -94,18 +94,22 @@ export interface Session {
     rounds: TiebreakerRound[];
     savedCluesUsed?: number;
   };
-  undo?: {
-    phase: Phase;
-    respondent?: string;
-    attempted: string[];
-    remaining: number;
-    used: string[];
-    eventsLength: number;
-    nextSelectorId?: string;
-    scores: Record<string, number>;
-    windowId?: string;
-    daily?: { playerId: string; amount: number };
-  };
+  /** Legacy single checkpoint, read only for sessions created before the stack existed. */
+  undo?: JudgmentCheckpoint;
+  undoStack?: JudgmentCheckpoint[];
+}
+export interface JudgmentCheckpoint {
+  questionId?: string;
+  phase: Phase;
+  respondent?: string;
+  attempted: string[];
+  remaining: number;
+  used: string[];
+  eventsLength: number;
+  nextSelectorId?: string;
+  scores: Record<string, number>;
+  windowId?: string;
+  daily?: { playerId: string; amount: number };
 }
 export interface Context {
   userId: string;
@@ -170,4 +174,5 @@ export interface SessionView {
   };
   nextSelectorId?: string;
   canUndo: boolean;
+  undoCount?: number;
 }

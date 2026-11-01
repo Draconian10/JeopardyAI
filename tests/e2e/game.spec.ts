@@ -1573,3 +1573,47 @@ for (const role of ['player', 'audience'] as const) {
     await expect(page.locator('.board-tile:not([disabled])')).toHaveCount(0);
   });
 }
+
+test('host can undo every judgment for one clue across reloads but cannot cross into another clue', async ({
+  page,
+}) => {
+  const s = fixture();
+  s.phase = 'board';
+  s.nextSelectorId = PLAYER;
+  s.players.push({ id: TIED_OTHER, name: 'Sam', score: 0, lastSeen: Date.now(), removed: false });
+  const current = await mock(page, s);
+  await claimHost(page, s);
+  await page.locator('.board-tile').first().click();
+  await simulateBuzz(page, current, PLAYER);
+  await page.getByRole('button', { name: 'Incorrect', exact: true }).click();
+  await simulateBuzz(page, current, TIED_OTHER);
+  await page.getByRole('button', { name: 'Incorrect', exact: true }).click();
+  await expect(page.getByText(/2 judgments can be undone for this clue/)).toBeVisible();
+  expect(current().players.map((p) => p.score)).toEqual([-200, -200]);
+  await page.getByRole('button', { name: 'Undo last judgment', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Clue hidden while Sam answers' })).toBeVisible();
+  await expect(page.getByText(/1 judgment can be undone for this clue/)).toBeVisible();
+  expect(current().players.map((p) => p.score)).toEqual([-200, 0]);
+  await page.reload();
+  await page.getByLabel('Host PIN').fill('123456');
+  await page.getByRole('button', { name: 'Resume / take control' }).click();
+  await page.getByRole('button', { name: 'Continue game', exact: false }).first().click();
+  await page.getByRole('button', { name: 'Undo last judgment', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Clue hidden while Alex answers' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Undo last judgment', exact: true })).toHaveCount(
+    0,
+  );
+  expect(current().players.map((p) => p.score)).toEqual([0, 0]);
+  expect(current().events).toHaveLength(0);
+  await page.getByRole('button', { name: 'Correct', exact: true }).click();
+  await expect(page.getByText(/1 judgment can be undone for this clue/)).toBeVisible();
+  await page.getByRole('button', { name: 'Back to the board', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Undo last judgment', exact: true })).toHaveCount(
+    0,
+  );
+  await page.locator('.board-tile:not([disabled])').first().click();
+  await expect(page.getByRole('button', { name: 'Undo last judgment', exact: true })).toHaveCount(
+    0,
+  );
+  expect(current().players.map((p) => p.score)).toEqual([200, 0]);
+});

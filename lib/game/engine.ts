@@ -1,6 +1,6 @@
 import type { Board, Command } from './schema';
 import { playable } from './schema';
-import type { Context, Phase, Session, SessionView } from './types';
+import type { Context, JudgmentCheckpoint, Phase, Session, SessionView } from './types';
 export const HOST_GRACE = 15000;
 export const QUESTION_MS = 30000;
 export const PRACTICE_PHASES: Phase[] = ['practiceReady', 'practiceOpen', 'practiceAnswer'];
@@ -33,6 +33,7 @@ const HOST_ACTIONS = new Set([
   'finish',
   'undo',
 ]);
+const UNDO_PHASES: Phase[] = ['question', 'answering', 'dailyAnswer', 'reveal'];
 const UNVERSIONED = new Set(['heartbeat', 'claim', 'join', 'buzz', 'wager', 'answer', 'tick']);
 export class GameError extends Error {
   constructor(
@@ -238,8 +239,22 @@ function score(s: Session, id: string, delta: number, reason: string, ctx: Conte
     at: ctx.now,
   });
 }
+function judgmentCheckpoints(s: Session): JudgmentCheckpoint[] {
+  if (!s.questionId) return [];
+  // Never expose or restore a checkpoint from a different clue. Legacy undo was already clue scoped.
+  if (s.undoStack !== undefined) return s.undoStack.filter((u) => u.questionId === s.questionId);
+  return s.undo && (!s.undo.questionId || s.undo.questionId === s.questionId)
+    ? [{ ...s.undo, questionId: s.questionId }]
+    : [];
+}
+function clearJudgments(s: Session) {
+  s.undo = undefined;
+  s.undoStack = [];
+}
 function rememberJudgment(s: Session) {
-  s.undo = {
+  const stack = judgmentCheckpoints(s);
+  stack.push({
+    questionId: s.questionId,
     phase: s.phase,
     respondent: s.respondent,
     attempted: [...s.attempted],
@@ -250,7 +265,9 @@ function rememberJudgment(s: Session) {
     scores: Object.fromEntries(s.players.map((p) => [p.id, p.score])),
     windowId: s.windowId,
     daily: s.daily && { ...s.daily },
-  };
+  });
+  s.undo = undefined;
+  s.undoStack = stack;
 }
 function openBuzz(s: Session, now: number) {
   s.phase = 'question';
@@ -332,6 +349,7 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       }
       break;
     case 'end':
+      clearJudgments(s);
       s.phase = 'ended';
       s.deadline = undefined;
       s.answerDeadline = undefined;
@@ -390,7 +408,7 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       s.windowId = crypto.randomUUID();
       s.respondent = undefined;
       s.attempted = [];
-      s.undo = undefined;
+      clearJudgments(s);
       break;
     case 'practiceStop':
       phase(...PRACTICE_PHASES);
@@ -418,7 +436,7 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       s.attempted = [];
       s.respondent = undefined;
       s.daily = undefined;
-      s.undo = undefined;
+      clearJudgments(s);
       s.remaining = QUESTION_MS;
       s.lastTimeout = undefined;
       s.answerDeadline = undefined;
@@ -462,13 +480,12 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
     }
     case 'reveal':
       phase('question', 'answering', 'dailyWager', 'dailyAnswer');
-      s.undo = undefined;
       closeQuestion(s);
       break;
     case 'next':
       phase('reveal');
       s.lastTimeout = undefined;
-      s.undo = undefined;
+      clearJudgments(s);
       s.questionId = undefined;
       s.respondent = undefined;
       s.daily = undefined;
@@ -560,7 +577,7 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
           s.windowId = undefined;
           s.deadline = undefined;
           s.lastTimeout = undefined;
-          s.undo = undefined;
+          clearJudgments(s);
         } else s.phase = 'finished';
       }
       break;
@@ -607,11 +624,12 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       s.attempted = [];
       break;
     case 'undo': {
+      const stack = judgmentCheckpoints(s);
       requireThat(
-        s.undo && ['question', 'reveal'].includes(s.phase),
+        stack.length && UNDO_PHASES.includes(s.phase),
         'There is no judgment to correct.',
       );
-      const u = s.undo;
+      const u = stack.pop()!;
       for (const p of s.players) p.score = u.scores[p.id] ?? p.score;
       s.events = s.events.slice(0, u.eventsLength);
       s.nextSelectorId = u.nextSelectorId ?? nextSelectorId(s);
@@ -626,12 +644,11 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       s.answerDeadline = undefined;
       s.answerRemaining = undefined;
       s.undo = undefined;
+      s.undoStack = stack;
       s.lastTimeout = undefined;
       break;
     }
   }
-  // A correction is allowed only before another player successfully buzzes.
-  if (cmd.type === 'buzz') s.undo = undefined;
   if (!['heartbeat', 'tick'].includes(cmd.type)) {
     s.processed.push(ctx.actionId);
     s.history.push({
@@ -773,6 +790,8 @@ export function viewSession(
         }
       : undefined,
     nextSelectorId: nextSelectorId(s),
-    canUndo: privateHost && !!s.undo,
+    canUndo: privateHost && UNDO_PHASES.includes(s.phase) && judgmentCheckpoints(s).length > 0,
+    undoCount:
+      privateHost && UNDO_PHASES.includes(s.phase) ? judgmentCheckpoints(s).length : undefined,
   };
 }

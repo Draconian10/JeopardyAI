@@ -1070,13 +1070,20 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                       </button>
                     )}
                     {s.canUndo && (
-                      <button
-                        className="button secondary full"
-                        disabled={busy || s.paused}
-                        onClick={() => void send({ type: 'undo' })}
-                      >
-                        <RotateCcw size={16} /> Undo last judgment
-                      </button>
+                      <div className="clue-undo-controls">
+                        <button
+                          className="button secondary full"
+                          disabled={busy || s.paused}
+                          onClick={() => void send({ type: 'undo' })}
+                        >
+                          <RotateCcw size={16} /> Undo last judgment
+                        </button>
+                        <p className="muted small" role="status">
+                          {s.undoCount ?? 1} {(s.undoCount ?? 1) === 1 ? 'judgment' : 'judgments'}{' '}
+                          can be undone for this clue. Each undo returns to that player’s response
+                          and cancels later buzzes.
+                        </p>
+                      </div>
                     )}
                     <Link className="button secondary full" href={`/display/${id}`} target="_blank">
                       <Monitor size={16} /> Audience display

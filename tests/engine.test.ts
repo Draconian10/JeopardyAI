@@ -469,3 +469,152 @@ it('does not reroll the opening selector on a retried start command', () => {
     spy.mockRestore();
   }
 });
+
+describe('clue-scoped judgment history', () => {
+  function twoMisses() {
+    let s = question();
+    s.nextSelectorId = A;
+    s = act(s, { type: 'buzz', windowId: s.windowId! }, A, NOW + 1000);
+    s = act(s, { type: 'judge', correct: false }, HOST, NOW + 1500);
+    s = act(s, { type: 'buzz', windowId: s.windowId! }, B, NOW + 2500);
+    return act(s, { type: 'judge', correct: false }, HOST, NOW + 3000);
+  }
+  it('undoes player 2 then player 1 consecutively, including after reload and host takeover', () => {
+    let s = twoMisses();
+    expect(s.phase).toBe('reveal');
+    expect(s.players.map((p) => p.score)).toEqual([-200, -200]);
+    expect(viewSession(s, HOST, NOW, CONTROL).undoCount).toBe(2);
+    s = act(s, { type: 'claim', pin: '123456', controller: CONTROL }, HOST, NOW + 4000, {
+      pinVerified: true,
+    });
+    s = JSON.parse(JSON.stringify(s));
+    s = act(s, { type: 'continue' }, HOST, NOW + 4500);
+    s = act(s, { type: 'undo' }, HOST, NOW + 5000);
+    expect(s.phase).toBe('answering');
+    expect(s.respondent).toBe(B);
+    expect(s.players.map((p) => p.score)).toEqual([-200, 0]);
+    expect(s.attempted).toEqual([A]);
+    expect(s.remaining).toBe(28000);
+    expect(s.events).toHaveLength(1);
+    expect(viewSession(s, HOST, NOW, CONTROL).undoCount).toBe(1);
+    s = act(s, { type: 'undo' }, HOST, NOW + 5500);
+    expect(s.respondent).toBe(A);
+    expect(s.players.map((p) => p.score)).toEqual([0, 0]);
+    expect(s.attempted).toEqual([]);
+    expect(s.remaining).toBe(29000);
+    expect(s.used).not.toContain(s.questionId);
+    expect(s.events).toHaveLength(0);
+    expect(s.nextSelectorId).toBe(A);
+    expect(viewSession(s, HOST, NOW, CONTROL).canUndo).toBe(false);
+    expect(() => act(s, { type: 'undo' }, HOST, NOW + 6000)).toThrow('no judgment');
+    s = act(s, { type: 'judge', correct: true }, HOST, NOW + 6000);
+    expect(s.players.map((p) => p.score)).toEqual([200, 0]);
+    expect(s.events).toHaveLength(1);
+    expect(s.undoStack).toHaveLength(1);
+  });
+  it('retains earlier checkpoints across a later buzz, correct judgment and forced reveal', () => {
+    let s = question();
+    s.nextSelectorId = A;
+    s = act(s, { type: 'buzz', windowId: s.windowId! }, A);
+    s = act(s, { type: 'judge', correct: false });
+    s = act(s, { type: 'buzz', windowId: s.windowId! }, B);
+    expect(viewSession(s, HOST, NOW, CONTROL).canUndo).toBe(true);
+    const pending = act(s, { type: 'undo' });
+    expect(pending.respondent).toBe(A);
+    expect(pending.players.every((p) => p.score === 0)).toBe(true);
+    s = act(s, { type: 'judge', correct: true });
+    expect(s.nextSelectorId).toBe(B);
+    s = act(s, { type: 'undo' });
+    expect(s.nextSelectorId).toBe(A);
+    s = act(s, { type: 'reveal' });
+    s = act(s, { type: 'undo' });
+    expect(s.respondent).toBe(A);
+    expect(s.events).toHaveLength(0);
+  });
+  it('clears every checkpoint on advancing and cannot restore a different clue', () => {
+    let s = twoMisses();
+    const oldStack = structuredClone(s.undoStack!);
+    s = act(s, { type: 'next' }, HOST, NOW + 4000);
+    expect(s.undoStack).toEqual([]);
+    expect(() => act(s, { type: 'undo' }, HOST, NOW + 4000)).toThrow('no judgment');
+    s = act(
+      s,
+      {
+        type: 'select',
+        questionId: s.board.questions.find((q) => !q.dailyDouble && !s.used.includes(q.id))!.id,
+      },
+      HOST,
+      NOW + 4000,
+    );
+    s.undoStack = oldStack;
+    expect(viewSession(s, HOST, NOW, CONTROL).canUndo).toBe(false);
+    expect(() => act(s, { type: 'undo' }, HOST, NOW + 4000)).toThrow('no judgment');
+    s = act(s, { type: 'buzz', windowId: s.windowId! }, A, NOW + 4500);
+    s = act(s, { type: 'judge', correct: true }, HOST, NOW + 4500);
+    expect(s.undoStack).toHaveLength(1);
+    s = act(s, { type: 'undo' }, HOST, NOW + 4500);
+    expect(s.players.map((p) => p.score)).toEqual([-200, -200]);
+    expect(s.events).toHaveLength(2);
+  });
+  it('supports legacy single checkpoints without exposing snapshots to players or audience', () => {
+    let s = twoMisses();
+    s.undo = s.undoStack!.at(-1);
+    delete s.undo!.questionId;
+    delete s.undoStack;
+    for (const v of [viewSession(s, A, NOW), viewSession(s, HOST, NOW, CONTROL, true)]) {
+      expect(v.canUndo).toBe(false);
+      expect(v.undoCount).toBeUndefined();
+      expect(v).not.toHaveProperty('undoStack');
+      expect(v).not.toHaveProperty('undo');
+    }
+    expect(() => act(s, { type: 'undo' }, A, NOW + 4000)).toThrow('Only the host');
+    s = act(s, { type: 'undo' }, HOST, NOW + 4000);
+    expect(s.respondent).toBe(B);
+    expect(s.undo).toBeUndefined();
+    expect(s.undoStack).toEqual([]);
+  });
+  it('keeps timeout checkpoints and requires a fresh judgment after each restored response', () => {
+    let s = question();
+    s.answerLimitSeconds = 1;
+    s = act(s, { type: 'buzz', windowId: s.windowId! }, A, NOW + 1000);
+    s = act(s, { type: 'tick' }, HOST, NOW + 2000);
+    s = act(s, { type: 'buzz', windowId: s.windowId! }, B, NOW + 3000);
+    s = act(s, { type: 'tick' }, HOST, NOW + 4000);
+    expect(s.undoStack).toHaveLength(2);
+    s = act(s, { type: 'undo' }, HOST, NOW + 5000);
+    s = act(s, { type: 'undo' }, HOST, NOW + 5000);
+    expect(s.respondent).toBe(A);
+    expect(s.answerDeadline).toBeUndefined();
+    expect(s.lastTimeout).toBeUndefined();
+    expect(s.players.every((p) => p.score === 0)).toBe(true);
+  });
+  it('deduplicates retries and rejects stale undo requests instead of popping extra checkpoints', () => {
+    const original = twoMisses();
+    const actionId = crypto.randomUUID();
+    const once = act(original, { type: 'undo' }, HOST, NOW + 4000, { actionId });
+    const retry = act(once, { type: 'undo' }, HOST, NOW + 4000, { actionId });
+    expect(retry.undoStack).toHaveLength(1);
+    expect(retry.respondent).toBe(B);
+    expect(() =>
+      act(once, { type: 'undo' }, HOST, NOW + 4000, { expectedVersion: original.actionVersion }),
+    ).toThrow('changed');
+  });
+});
+
+it('does not permit clue checkpoints in Final Jeopardy, tiebreaker or ended sessions', () => {
+  let s = question();
+  s = act(s, { type: 'buzz', windowId: s.windowId! }, A);
+  s = act(s, { type: 'judge', correct: true });
+  for (const phase of ['finalReview', 'tieAnswer'] as const) {
+    const blocked = structuredClone(s);
+    blocked.phase = phase;
+    blocked.final = Object.fromEntries(
+      blocked.players.map((p) => [p.id, { score: p.score, text: '', wager: 0 }]),
+    );
+    expect(viewSession(blocked, HOST, NOW, CONTROL).canUndo).toBe(false);
+    expect(() => act(blocked, { type: 'undo' })).toThrow('no judgment');
+  }
+  s = act(s, { type: 'end' });
+  expect(s.undoStack).toEqual([]);
+  expect(() => act(s, { type: 'undo' })).toThrow('ended');
+});

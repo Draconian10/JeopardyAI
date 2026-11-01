@@ -21,7 +21,7 @@ The PostgreSQL function conditionally updates the expected version, refreshes se
 
 Host actions also carry a gameplay `actionVersion` to reject stale judgments or phase transitions. Heartbeats advance the persistence version but not the gameplay version, so ordinary liveness writes do not invalidate a host's pending judgment.
 
-Mutating requests carry action UUIDs. Durable processed IDs prevent double scoring on replay. Score events record applied deltas. A separate action history records transitions and corrections without storing PINs or duplicating answer text. Undo restores the immediately preceding judgment snapshot and clears its eligibility after the next accepted buzz/next question.
+Mutating requests carry action UUIDs. Durable processed IDs prevent double scoring on replay. Score events record applied deltas. A separate action history records transitions and corrections without storing PINs or duplicating answer text. Undo pops a durable, clue-scoped judgment stack. Later buzzes retain earlier checkpoints; advancing off the clue clears the stack.
 
 ## Phases
 
@@ -128,3 +128,7 @@ Final review's `finalReviewPlayer` now defines the public reveal boundary for th
 ## Next clue selection
 
 `Session.nextSelectorId` is optional for legacy JSON. The server chooses the first active selector using rejection-sampled Web Crypto randomness when accepting `start`; reads, retries, practice and resume never reroll. Correct regular/Daily Double judgments update the field independently of monetary delta. Misses/reveals retain it, and undo snapshots restore it. `SessionView` exposes only the selector ID; all views resolve the safe public player name. Legacy sessions use their first active seat as a deterministic fallback, persisted on the next tile selection. Tile commands remain host/controller/version guarded.
+
+## Clue-scoped undo stack
+
+`Session.undoStack` stores one private `JudgmentCheckpoint` before each regular/Daily Double judgment, including timeouts. Every checkpoint includes its clue ID, scores, applied-event length, attempted players, respondent, remaining buzzer time, completed tiles, wager and next selector. `undo` accepts current-clue checkpoints only in question/answering/dailyAnswer/reveal, pops one checkpoint and returns to manual response judging with both clocks stopped. Consecutive undo commands can traverse different players’ responses; rejudging creates a new branch. Accepted later buzzes and forced reveal do not discard the stack. Selecting/advancing clues, practice reset and terminal/session-end transitions clear it. Existing host/controller/version/action-ID/CAS guards prevent unauthorized or duplicate pops. Public projections expose neither snapshots nor counts; the host receives `canUndo` and `undoCount` only. Legacy `undo` is adopted as one checkpoint on first use; already discarded history cannot be recovered. No SQL migration is needed.
