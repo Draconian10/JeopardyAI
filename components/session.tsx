@@ -34,6 +34,7 @@ import DownloadResults from './download-results';
 import ResultsConfetti from './results-confetti';
 import Tiebreaker from './tiebreaker';
 import PracticeRound from './practice-round';
+import DailyDoubleWager from './daily-double-wager';
 import { PRACTICE_PHASES, TIE_PHASES } from '@/lib/game/engine';
 import type { SessionView } from '@/lib/game/types';
 export default function GameSession({
@@ -62,7 +63,6 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
   } = useSession(id, role);
   const [pin, setPin] = useState('');
   const [wager, setWager] = useState('0');
-  const [dailyPlayer, setDailyPlayer] = useState('');
   const [draft, setDraft] = useState('');
   const [draftStatus, setDraftStatus] = useState('');
   const [sound, setSound] = useState(false);
@@ -674,62 +674,16 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                 </section>
               ))}
             {s.phase === 'dailyWager' && (
-              <section className="question-stage daily-stage">
-                <Star size={48} fill="currentColor" />
-                <span className="eyebrow">A LITTLE EXTRA ON THE LINE</span>
-                <h2>Daily Double!</h2>
-                <p>One player. One wager. No buzzer.</p>
-                {control ? (
-                  <form
-                    className="wager-form"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      void send({
-                        type: 'dailyWager',
-                        playerId: dailyPlayer,
-                        amount: Number(wager),
-                      });
-                    }}
-                  >
-                    <label>
-                      Who found it?
-                      <select
-                        required
-                        value={dailyPlayer}
-                        onChange={(e) => {
-                          setDailyPlayer(e.target.value);
-                          setWager('0');
-                        }}
-                      >
-                        <option value="">Choose a player</option>
-                        {s.players.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name} · {money(p.score)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      Wager · max{' '}
-                      {money(Math.abs(s.players.find((p) => p.id === dailyPlayer)?.score ?? 0))}
-                      <input
-                        type="number"
-                        min={0}
-                        max={Math.abs(s.players.find((p) => p.id === dailyPlayer)?.score ?? 0)}
-                        step={1}
-                        required
-                        value={wager}
-                        onChange={(e) => setWager(e.target.value)}
-                      />
-                    </label>
-                    <button className="button primary" disabled={busy || s.paused}>
-                      Lock wager & reveal clue
-                    </button>
-                  </form>
-                ) : (
-                  <p className="muted">Your host is choosing the player and locking their wager.</p>
-                )}
-              </section>
+              <DailyDoubleWager
+                key={s.question?.id}
+                s={s}
+                player={player}
+                userId={userId}
+                control={!!control}
+                busy={busy}
+                connected={connected}
+                send={send}
+              />
             )}
             {s.phase === 'dailyAnswer' && (
               <section className="question-stage daily-stage">

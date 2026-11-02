@@ -269,10 +269,12 @@ describe('Daily Double and Final Jeopardy', () => {
   it('allows negative-score wagers using absolute value and only zero at zero', () => {
     let s = act(fixture(), { type: 'start' });
     s.players[0].score = -400;
+    s.nextSelectorId = A;
     s = act(s, { type: 'select', questionId: s.board.questions.find((q) => q.dailyDouble)!.id });
-    expect(() => act(s, { type: 'dailyWager', playerId: B, amount: 1 })).toThrow('exceeds');
-    expect(() => act(s, { type: 'dailyWager', playerId: A, amount: 401 })).toThrow('exceeds');
-    s = act(s, { type: 'dailyWager', playerId: A, amount: 400 });
+    expect(() => act(s, { type: 'dailyWager', amount: 1 }, B)).toThrow('assigned');
+    expect(() => act(s, { type: 'dailyWager', amount: 401 }, A)).toThrow('exceeds');
+    s = act(s, { type: 'dailyWager', amount: 400 }, A);
+    s = act(s, { type: 'openDaily' });
     s = act(s, { type: 'dailyJudge', correct: true });
     expect(s.players[0].score).toBe(0);
   });
@@ -348,7 +350,8 @@ describe('complete game flow', () => {
     for (const q of s.board.questions) {
       s = act(s, { type: 'select', questionId: q.id });
       if (q.dailyDouble) {
-        s = act(s, { type: 'dailyWager', playerId: A, amount: Math.abs(s.players[0].score) });
+        s = act(s, { type: 'dailyWager', amount: Math.abs(s.players[0].score) }, A);
+        s = act(s, { type: 'openDaily' });
         s = act(s, { type: 'dailyJudge', correct: true });
       } else {
         s = act(s, { type: 'buzz', windowId: s.windowId! }, A);
@@ -425,13 +428,14 @@ describe('next clue selection', () => {
     s = act(s, { type: 'continue' }, HOST, NOW + 6000);
     expect(s.nextSelectorId).toBe(B);
   });
-  it('transfers on a correct zero-wager Daily Double but retains selection on a miss', () => {
+  it('keeps the Daily Double finder as selector after a zero-wager judgment or undo', () => {
     let s = act(fixture(), { type: 'start' });
     s.nextSelectorId = A;
     s = act(s, { type: 'select', questionId: s.board.questions.find((q) => q.dailyDouble)!.id });
-    s = act(s, { type: 'dailyWager', playerId: B, amount: 0 });
+    s = act(s, { type: 'dailyWager', amount: 0 }, A);
+    s = act(s, { type: 'openDaily' });
     const correct = act(s, { type: 'dailyJudge', correct: true });
-    expect(correct.nextSelectorId).toBe(B);
+    expect(correct.nextSelectorId).toBe(A);
     expect(act(correct, { type: 'undo' }).nextSelectorId).toBe(A);
     expect(act(s, { type: 'dailyJudge', correct: false }).nextSelectorId).toBe(A);
   });
@@ -617,4 +621,92 @@ it('does not permit clue checkpoints in Final Jeopardy, tiebreaker or ended sess
   s = act(s, { type: 'end' });
   expect(s.undoStack).toEqual([]);
   expect(() => act(s, { type: 'undo' })).toThrow('ended');
+});
+
+describe('player-owned Daily Double wagers', () => {
+  function daily() {
+    let s = act(fixture(), { type: 'start' });
+    s.nextSelectorId = B;
+    s.players[1].score = -500;
+    return act(s, { type: 'select', questionId: s.board.questions.find((q) => q.dailyDouble)!.id });
+  }
+  it('assigns the selector and keeps the clue hidden until a submitted wager is locked', () => {
+    let s = daily();
+    expect(s.daily).toEqual({ playerId: B, amount: 0, submitted: false });
+    expect(() => act(s, { type: 'openDaily' })).toThrow('save a wager');
+    expect(() => act(s, { type: 'dailyWager', amount: 1 }, A)).toThrow('assigned');
+    expect(() => act(s, { type: 'dailyWager', amount: 1 })).toThrow('assigned');
+    expect(() => act(s, { type: 'dailyJudge', correct: true })).toThrow('stage');
+    s = act(s, { type: 'dailyWager', amount: 200 }, B);
+    expect(s.phase).toBe('dailyWager');
+    for (const v of [
+      viewSession(s, A, NOW),
+      viewSession(s, B, NOW),
+      viewSession(s, HOST, NOW, CONTROL, true),
+    ]) {
+      expect(v.daily?.amount).toBe(200);
+      expect(v.daily?.submitted).toBe(true);
+      expect(v.question?.prompt).toBe('Daily Double');
+      expect(v.question?.answer).toBeUndefined();
+    }
+    expect(() => act(s, { type: 'openDaily' }, B)).toThrow('Only the host');
+    const oldVersion = s.actionVersion;
+    s = act(s, { type: 'dailyWager', amount: 350 }, B);
+    expect(() => act(s, { type: 'openDaily' }, HOST, NOW, { expectedVersion: oldVersion })).toThrow(
+      'changed',
+    );
+    s = act(s, { type: 'openDaily' });
+    expect(s.phase).toBe('dailyAnswer');
+    expect(s.daily?.amount).toBe(350);
+    expect(viewSession(s, A, NOW).question?.prompt).toBe(
+      s.board.questions.find((q) => q.dailyDouble)!.prompt,
+    );
+    expect(() => act(s, { type: 'dailyWager', amount: 100 }, B)).toThrow('stage');
+    expect(() => act(s, { type: 'buzz', windowId: crypto.randomUUID() }, A)).toThrow('stage');
+    s = act(s, { type: 'dailyJudge', correct: false });
+    expect(s.players[1].score).toBe(-850);
+    s = act(s, { type: 'undo' });
+    expect(s.phase).toBe('dailyAnswer');
+    expect(s.daily).toEqual({ playerId: B, amount: 350, submitted: true });
+    expect(s.players[1].score).toBe(-500);
+  });
+  it('validates whole, nonnegative wagers and treats a saved zero as a real submission', () => {
+    let s = daily();
+    for (const amount of [-1, 0.1, Infinity, NaN, 100000001])
+      expect(commandSchema.safeParse({ type: 'dailyWager', amount }).success).toBe(false);
+    expect(commandSchema.safeParse({ type: 'dailyWager', amount: 0, playerId: A }).success).toBe(
+      false,
+    );
+    expect(() => act(s, { type: 'dailyWager', amount: 501 }, B)).toThrow('exceeds');
+    s.players[1].score = 0;
+    expect(() => act(s, { type: 'dailyWager', amount: 1 }, B)).toThrow('exceeds');
+    s = act(s, { type: 'dailyWager', amount: 0 }, B);
+    expect(s.daily?.submitted).toBe(true);
+    s = act(s, { type: 'openDaily' });
+    expect(s.phase).toBe('dailyAnswer');
+  });
+  it('preserves the assignment and saved wager through host takeover, reload and pause', () => {
+    let s = daily();
+    s = act(s, { type: 'dailyWager', amount: 500 }, B);
+    s = act(s, { type: 'pause' });
+    expect(() => act(s, { type: 'dailyWager', amount: 0 }, B)).toThrow('paused');
+    s = JSON.parse(JSON.stringify(s));
+    s = act(s, { type: 'claim', pin: '123456', controller: CONTROL }, HOST, NOW, {
+      pinVerified: true,
+    });
+    s = act(s, { type: 'continue' });
+    expect(s.daily).toEqual({ playerId: B, amount: 500, submitted: true });
+    s = act(s, { type: 'openDaily' });
+    expect(s.daily?.amount).toBe(500);
+  });
+  it('uses the saved selector for a legacy pending Daily Double and keeps old locked wagers judgeable', () => {
+    let s = daily();
+    delete s.daily;
+    expect(viewSession(s, B, NOW).daily?.playerId).toBe(B);
+    s = act(s, { type: 'dailyWager', amount: 250 }, B);
+    s = act(s, { type: 'openDaily' });
+    delete s.daily!.submitted;
+    s = act(s, { type: 'dailyJudge', correct: true });
+    expect(s.players[1].score).toBe(-250);
+  });
 });

@@ -25,7 +25,7 @@ const HOST_ACTIONS = new Set([
   'judge',
   'reveal',
   'next',
-  'dailyWager',
+  'openDaily',
   'dailyJudge',
   'openFinal',
   'finalJudge',
@@ -58,6 +58,11 @@ function randomFirstSelector(s: Session) {
   do crypto.getRandomValues(sample);
   while (sample[0] >= bound);
   return players[sample[0] % players.length].id;
+}
+function dailyWagerState(s: Session) {
+  if (s.daily) return s.daily;
+  const playerId = nextSelectorId(s);
+  return playerId ? { playerId, amount: 0, submitted: false } : undefined;
 }
 export function finalReviewPlayer(s: Session) {
   return activePlayers(s)
@@ -442,6 +447,8 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       s.answerDeadline = undefined;
       s.answerRemaining = undefined;
       if (q.dailyDouble) {
+        s.daily = dailyWagerState(s);
+        requireThat(s.daily, 'No active player can take this Daily Double.');
         s.phase = 'dailyWager';
         s.deadline = undefined;
         s.windowId = undefined;
@@ -500,10 +507,26 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       break;
     case 'dailyWager': {
       phase('dailyWager');
-      const p = activePlayers(s).find((p) => p.id === cmd.playerId);
-      requireThat(p, 'Choose a player.');
-      requireThat(cmd.amount <= Math.abs(p.score), 'Wager exceeds the absolute player score.');
-      s.daily = { playerId: p.id, amount: cmd.amount };
+      const daily = dailyWagerState(s);
+      requireThat(
+        player && daily?.playerId === player.id,
+        'Only the assigned player can save this wager.',
+        403,
+      );
+      requireThat(cmd.amount <= Math.abs(player.score), 'Wager exceeds the absolute player score.');
+      s.daily = { playerId: player.id, amount: cmd.amount, submitted: true };
+      break;
+    }
+    case 'openDaily': {
+      phase('dailyWager');
+      const daily = dailyWagerState(s);
+      requireThat(daily?.submitted, 'Wait for the assigned player to save a wager.');
+      const assigned = activePlayers(s).find((p) => p.id === daily.playerId);
+      requireThat(
+        assigned && daily.amount <= Math.abs(assigned.score),
+        'The saved wager is no longer valid.',
+      );
+      s.daily = daily;
       s.phase = 'dailyAnswer';
       break;
     }
@@ -759,7 +782,7 @@ export function viewSession(
     windowId: s.windowId,
     respondent: s.respondent,
     attempted: s.attempted,
-    daily: s.daily,
+    daily: s.phase === 'dailyWager' ? dailyWagerState(s) : s.daily,
     events: s.events,
     tiebreaker: s.tiebreaker
       ? {

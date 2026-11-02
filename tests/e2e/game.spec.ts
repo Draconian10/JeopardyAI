@@ -1617,3 +1617,137 @@ test('host can undo every judgment for one clue across reloads but cannot cross 
   );
   expect(current().players.map((p) => p.score)).toEqual([200, 0]);
 });
+
+function pendingDaily() {
+  let s = fixture();
+  s.phase = 'board';
+  s.nextSelectorId = PLAYER;
+  s.players[0].score = 500;
+  return applyCommand(
+    s,
+    { type: 'select', questionId: s.board.questions.find((q) => q.dailyDouble)!.id },
+    {
+      userId: HOST,
+      controller: CONTROL,
+      now: Date.now(),
+      actionId: crypto.randomUUID(),
+      expectedVersion: s.actionVersion,
+    },
+  );
+}
+
+test('Daily Double finder saves and edits a wager on their own screen before the host reveals the clue', async ({
+  page,
+}) => {
+  const s = pendingDaily();
+  const current = await mock(page, s, PLAYER);
+  await page.goto(`/play/${s.id}`);
+  await expect(page.getByRole('heading', { name: 'Alex found the Daily Double!' })).toBeVisible();
+  const input = page.getByRole('spinbutton', { name: 'Your wager · max $500', exact: true });
+  await input.fill('501');
+  await expect(page.getByRole('button', { name: 'Save wager', exact: true })).toBeDisabled();
+  await input.fill('200');
+  await page.getByRole('button', { name: 'Save wager', exact: true }).click();
+  await expect(page.getByText('Saved wager: $200', { exact: true })).toBeVisible();
+  expect(current().phase).toBe('dailyWager');
+  await expect(page.getByRole('button', { name: 'Lock wager & reveal clue' })).toHaveCount(0);
+  await page.reload();
+  await expect(input).toHaveValue('200');
+  await input.fill('350');
+  await page.getByRole('button', { name: 'Save wager', exact: true }).click();
+  await expect(page.getByText('Saved wager: $350', { exact: true })).toBeVisible();
+  await page.screenshot({
+    path: `/tmp/daily-wager-${await page.evaluate(() => innerWidth)}.png`,
+    fullPage: true,
+  });
+  const state = current();
+  Object.assign(
+    state,
+    applyCommand(
+      state,
+      { type: 'openDaily' },
+      {
+        userId: HOST,
+        controller: CONTROL,
+        now: Date.now(),
+        actionId: crypto.randomUUID(),
+        expectedVersion: state.actionVersion,
+      },
+    ),
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(
+    page.getByRole('heading', {
+      name: s.board.questions.find((q) => q.dailyDouble)!.prompt,
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.getByRole('spinbutton')).toHaveCount(0);
+  await expect(page.locator('.buzzer')).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('host sees the assigned finder and saved Daily Double wager and locks it without selecting a player', async ({
+  page,
+}) => {
+  const s = pendingDaily();
+  const current = await mock(page, s);
+  await claimHost(page, s);
+  await expect(page.getByRole('heading', { name: 'Alex found the Daily Double!' })).toBeVisible();
+  await expect(page.getByRole('combobox')).toHaveCount(0);
+  await expect(page.getByRole('spinbutton')).toHaveCount(0);
+  const lock = page.getByRole('button', { name: 'Lock wager & reveal clue', exact: true });
+  await expect(lock).toBeDisabled();
+  const state = current();
+  Object.assign(
+    state,
+    applyCommand(
+      state,
+      { type: 'dailyWager', amount: 200 },
+      {
+        userId: PLAYER,
+        now: Date.now(),
+        actionId: crypto.randomUUID(),
+        expectedVersion: state.actionVersion,
+      },
+    ),
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByText('Saved wager: $200', { exact: true })).toBeVisible();
+  await lock.click();
+  await expect(
+    page.getByRole('heading', {
+      name: s.board.questions.find((q) => q.dailyDouble)!.prompt,
+      exact: true,
+    }),
+  ).toBeVisible();
+  expect(current().daily?.playerId).toBe(PLAYER);
+  await page.getByRole('button', { name: 'Incorrect', exact: true }).click();
+  expect(current().players[0].score).toBe(300);
+  await page.getByRole('button', { name: 'Undo last judgment', exact: true }).click();
+  expect(current().daily?.amount).toBe(200);
+  expect(current().players[0].score).toBe(500);
+  expect(current().phase).toBe('dailyAnswer');
+});
+
+for (const role of ['other player', 'audience'] as const) {
+  test(`${role} sees the saved Daily Double wager without wager or reveal controls`, async ({
+    page,
+  }) => {
+    const s = pendingDaily();
+    s.daily = { playerId: PLAYER, amount: 250, submitted: true };
+    s.players.push({ id: TIED_OTHER, name: 'Sam', score: 0, lastSeen: Date.now(), removed: false });
+    await mock(page, s, role === 'audience' ? HOST : TIED_OTHER);
+    await page.goto(`/${role === 'audience' ? 'display' : 'play'}/${s.id}`);
+    await expect(page.getByText('Saved wager: $250', { exact: true })).toBeVisible();
+    await expect(page.getByRole('spinbutton')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Save wager', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Lock wager & reveal clue' })).toHaveCount(0);
+    await expect(
+      page.getByRole('heading', {
+        name: s.board.questions.find((q) => q.dailyDouble)!.prompt,
+        exact: true,
+      }),
+    ).toHaveCount(0);
+  });
+}

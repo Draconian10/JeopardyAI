@@ -2870,3 +2870,15 @@ input[type='checkbox'] {
   font-size: 14px;
   line-height: 1.5;
 }
+
+.daily-stage > .daily-wager-status {
+  font-size: clamp(20px, 2.5vw, 32px);
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--gold);
+  overflow-wrap: anywhere;
+}
+.daily-stage > .button {
+  max-width: 100%;
+  white-space: normal;
+}

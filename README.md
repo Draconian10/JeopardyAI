@@ -11,7 +11,7 @@ A responsive, self-hostable Jeopardy game for **Next.js + Vercel + Supabase**. T
 - Lobby with a separate six-digit join code, QR code, player list, connection status, lobby lock, and removal.
 - Server-authoritative, atomic first-buzz arbitration and 30-second windows.
 - Correct/incorrect scoring, remaining-time resumption after a miss, one attempt per player per clue, and correct-response reveal.
-- Hidden Daily Double, host-selected participant, and wagers capped at the absolute score.
+- Hidden Daily Double, automatically assigned selecting player, and wagers capped at the absolute score.
 - Final Jeopardy category → private wagers → 30-second written answers → individual judging → sudden-death buzzer clues for tied leaders.
 - Animated standings after every clue with score changes, moving player rows, and rank movement; reduced-motion preferences are respected.
 - End sessions directly from the host dashboard, unscored practice buzzers, and an optional per-session response deadline.
@@ -96,7 +96,7 @@ Taking control in another tab pauses the game and invalidates the previous contr
 - First valid server-accepted buzz wins. The 30-second buzzer timer pauses during the spoken answer. By default spoken answers have no deadline; the host can enable a separate 5–60 second response deadline in the lobby.
 - Correct: award the clue value and reveal the correct response. Incorrect: deduct the clue value, exclude that player for this question, and resume the **remaining** time with a fresh buzzer-window ID.
 - When time expires or everyone has missed, reveal the correct response. Host chooses when to return to the board.
-- Daily Double: no buzzer; host chooses the player, locks the wager, reveals the clue, and judges the spoken answer.
+- Daily Double: no buzzer; the selecting player is assigned automatically and saves their wager on their own screen. The saved wager is displayed to everyone. The host locks it, reveals the clue, and judges the spoken response.
 - Daily Double and Final wager range: **0 through absolute current/pre-Final score**, whole dollars. A score of zero permits only a zero wager. Negative-score players are eligible.
 - Final: host reveals the category; players save/change private wagers until the host opens the clue. Missing wagers default to zero after host confirmation.
 - Final responses autosave at most twice a second, one request at a time. Players may also explicitly Save. **Only text successfully received before the server deadline counts**; unsent keystrokes are not guaranteed. Latest received text locks at expiry; blank responses are incorrect.
@@ -218,3 +218,7 @@ UI terminology uses **Clue**, **Correct response**, **Your response**, **Clue va
 The host’s **Undo last judgment** button shows the number of remaining checkpoints for the current clue. For example, after Alex and Sam both miss, undo once to return to Sam’s response, then undo again to return to Alex’s response. Each undo restores all scores, attempted-player eligibility, remaining buzzer time, clue completion, applied score events and selection ownership to that checkpoint. Later pending buzzes are canceled. The restored response is judged manually without restarting its spoken-response deadline. Rejudging creates a new checkpoint; undone judgments are removed from the applied CSV score ledger while the action audit remains.
 
 History survives reload, host takeover and pause/resume, and remains available through a forced reveal until the host advances. Advancing off the clue clears it; no undo can reach earlier clues, Final Jeopardy or sudden-death judgments. Old sessions retain their existing single checkpoint, but lost historical judgments cannot be reconstructed. All new judgments use the stack. No database migration is required.
+
+## Player-owned Daily Double wager
+
+A Daily Double belongs to the saved next-selection player. Only that player can save a whole-dollar wager from $0 through their absolute score. The player must select **Save wager**, including for $0; they can update it until locked. Everyone sees the saved amount, while unsaved input remains local. The host selects **Lock wager & reveal clue** after a wager is saved. The server rejects a stale lock if the wager changed since the host’s snapshot, so the host reviews the new amount before retrying. Buzzers remain disabled, and the clue stays hidden until lock. Assignment and saved wagers survive reconnect, host takeover and pause/resume; judgment undo restores the locked wager. Existing pending sessions use their saved selector (or the stable first-active fallback), and existing already-locked Daily Doubles remain judgeable. Refresh all game screens after deployment. No migration is needed.

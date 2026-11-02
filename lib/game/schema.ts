@@ -95,8 +95,8 @@ export const commandSchema = z.discriminatedUnion('type', [
   action('judge', { correct: z.boolean() }),
   action('reveal', {}),
   action('next', {}),
+  action('openDaily', {}),
   action('dailyWager', {
-    playerId: z.string().uuid(),
     amount: z.number().int().min(0).max(100000000),
   }),
   action('dailyJudge', { correct: z.boolean() }),

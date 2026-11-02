@@ -83,7 +83,7 @@ export interface Session {
   remaining: number;
   respondent?: string;
   attempted: string[];
-  daily?: { playerId: string; amount: number };
+  daily?: { playerId: string; amount: number; submitted?: boolean };
   final: Record<string, FinalEntry>;
   events: ScoreEvent[];
   history: { actionId: string; type: string; userId: string; at: number; phase: Phase }[];
@@ -109,7 +109,7 @@ export interface JudgmentCheckpoint {
   nextSelectorId?: string;
   scores: Record<string, number>;
   windowId?: string;
-  daily?: { playerId: string; amount: number };
+  daily?: { playerId: string; amount: number; submitted?: boolean };
 }
 export interface Context {
   userId: string;
@@ -162,7 +162,7 @@ export interface SessionView {
   windowId?: string;
   respondent?: string;
   attempted: string[];
-  daily?: { playerId: string; amount: number };
+  daily?: { playerId: string; amount: number; submitted?: boolean };
   events: ScoreEvent[];
   tiebreaker?: {
     playerIds: string[];

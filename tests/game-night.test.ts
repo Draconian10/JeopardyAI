@@ -253,7 +253,8 @@ describe('optional response deadline', () => {
     let s = act(lobby(), { type: 'configure', answerLimitSeconds: 5 });
     s = act(s, { type: 'start' });
     s = act(s, { type: 'select', questionId: s.board.questions.find((q) => q.dailyDouble)!.id });
-    s = act(s, { type: 'dailyWager', playerId: A, amount: 0 });
+    s = act(s, { type: 'dailyWager', amount: 0 }, s.daily!.playerId);
+    s = act(s, { type: 'openDaily' });
     expect(s.answerDeadline).toBeUndefined();
     expect(s.phase).toBe('dailyAnswer');
   });
