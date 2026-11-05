@@ -1,0 +1,551 @@
+{
+  "sourceCommit": "298ec4aeb08b8dabe0c5eff2f88189a89fac8fc6",
+  "scope": "Actual Next route handlers, identity/rate-limit code, engine, persistence retry loops and all SQL migrations. Auth identity verification and Supabase transport/Realtime delivery are emulated; PostgreSQL is local PGlite. Artificial latency/concurrency are experiment inputs, not measured production limits.",
+  "warning": "These are local handler/PGlite simulations with injected transport latency, not authenticated deployed-game load tests. Latencies are individual exploratory runs. The public deployment probe did not exercise Auth/DB/gameplay. Late Final stage-rejection responses are separated from busy failures. No production behavior was modified.",
+  "runs": [
+    {
+      "measuredAt": "2026-11-05T21:06:56.601Z",
+      "runtime": "v24.22.1",
+      "secondsPerTrafficScenario": 20,
+      "scenarios": [
+        {
+          "name": "15 joins then 15 reconnect-style join retries within one minute, same public IP",
+          "first": {
+            "200": 15
+          },
+          "retry": {
+            "200": 5,
+            "429": 10
+          },
+          "latencyMs": {
+            "p50": 260,
+            "p95": 434,
+            "max": 434
+          },
+          "database": {
+            "auth": 30,
+            "reads": 155,
+            "rate": 60,
+            "commitAttempts": 135,
+            "commits": 20,
+            "casConflicts": 115,
+            "notifications": 20,
+            "sessionBytesRead": 1153230,
+            "sessionBytesWritten": 196998,
+            "dbPeak": 15,
+            "dbQueuedPeak": 0
+          }
+        },
+        {
+          "name": "20 rounds \u00d7 15 simultaneous buzzes",
+          "rounds": 20,
+          "successfulWinners": 20,
+          "expectedLosingBuzzes": 280,
+          "duplicateScoreEvents": 0,
+          "winnerLatencyMs": {
+            "p50": 33,
+            "p95": 39,
+            "max": 41
+          },
+          "database": {
+            "auth": 360,
+            "reads": 640,
+            "rate": 720,
+            "commitAttempts": 360,
+            "commits": 80,
+            "casConflicts": 280,
+            "notifications": 80,
+            "sessionBytesRead": 11963653,
+            "sessionBytesWritten": 1539880,
+            "dbPeak": 15,
+            "dbQueuedPeak": 0
+          }
+        },
+        {
+          "name": "4-player baseline idle",
+          "players": 4,
+          "subscribers": 6,
+          "durationSeconds": 20,
+          "inputs": {
+            "perDatabaseOperationDelayMs": 10,
+            "authDelayMs": 5,
+            "emulatedDatabaseOperationSlots": 64,
+            "coalescedReads": false
+          },
+          "requests": 147,
+          "peakInFlightRequests": 11,
+          "statuses": {
+            "200": 147
+          },
+          "errors": {},
+          "requestLatencyMs": {
+            "p50": 18,
+            "p95": 103,
+            "max": 173
+          },
+          "heartbeatLatencyMs": {
+            "p50": 103,
+            "p95": 173,
+            "max": 173
+          },
+          "heartbeats": {
+            "200": 15
+          },
+          "broadcastCallbacks": 15,
+          "deliveredEvents": 90,
+          "drainSeconds": 0,
+          "observedSavedPhase": "board",
+          "hostPaused": false,
+          "receivedFinalAnswers": 0,
+          "database": {
+            "auth": 147,
+            "reads": 177,
+            "rate": 30,
+            "commitAttempts": 45,
+            "commits": 15,
+            "casConflicts": 30,
+            "notifications": 15,
+            "sessionBytesRead": 1278717,
+            "sessionBytesWritten": 108366,
+            "dbPeak": 11,
+            "dbQueuedPeak": 0
+          }
+        },
+        {
+          "name": "15-player idle",
+          "players": 15,
+          "subscribers": 17,
+          "durationSeconds": 20,
+          "inputs": {
+            "perDatabaseOperationDelayMs": 10,
+            "authDelayMs": 5,
+            "emulatedDatabaseOperationSlots": 64,
+            "coalescedReads": false
+          },
+          "requests": 983,
+          "peakInFlightRequests": 33,
+          "statuses": {
+            "200": 983
+          },
+          "errors": {},
+          "requestLatencyMs": {
+            "p50": 24,
+            "p95": 37,
+            "max": 573
+          },
+          "heartbeatLatencyMs": {
+            "p50": 312,
+            "p95": 539,
+            "max": 573
+          },
+          "heartbeats": {
+            "200": 48
+          },
+          "broadcastCallbacks": 48,
+          "deliveredEvents": 816,
+          "drainSeconds": 0,
+          "observedSavedPhase": "board",
+          "hostPaused": false,
+          "receivedFinalAnswers": 0,
+          "database": {
+            "auth": 983,
+            "reads": 1343,
+            "rate": 96,
+            "commitAttempts": 408,
+            "commits": 48,
+            "casConflicts": 360,
+            "notifications": 48,
+            "sessionBytesRead": 11454145,
+            "sessionBytesWritten": 409383,
+            "dbPeak": 33,
+            "dbQueuedPeak": 0
+          }
+        },
+        {
+          "name": "15-player Final typing",
+          "players": 15,
+          "subscribers": 17,
+          "durationSeconds": 20,
+          "inputs": {
+            "perDatabaseOperationDelayMs": 10,
+            "authDelayMs": 5,
+            "emulatedDatabaseOperationSlots": 64,
+            "coalescedReads": false
+          },
+          "requests": 6143,
+          "peakInFlightRequests": 92,
+          "statuses": {
+            "200": 6109,
+            "409": 34
+          },
+          "errors": {
+            "409: Game is busy. Please try again.": 34
+          },
+          "requestLatencyMs": {
+            "p50": 42,
+            "p95": 299,
+            "max": 2622
+          },
+          "heartbeatLatencyMs": {
+            "p50": 1495,
+            "p95": 2619,
+            "max": 2622
+          },
+          "heartbeats": {
+            "200": 30,
+            "409": 18
+          },
+          "broadcastCallbacks": 332,
+          "deliveredEvents": 5644,
+          "drainSeconds": 0.5,
+          "observedSavedPhase": "finalAnswer",
+          "hostPaused": false,
+          "receivedFinalAnswers": 15,
+          "database": {
+            "auth": 6143,
+            "reads": 9492,
+            "rate": 760,
+            "commitAttempts": 3729,
+            "commits": 346,
+            "casConflicts": 3383,
+            "notifications": 346,
+            "sessionBytesRead": 393373327,
+            "sessionBytesWritten": 14454111,
+            "dbPeak": 63,
+            "dbQueuedPeak": 0
+          }
+        },
+        {
+          "name": "15-player Final typing, slower constrained transport",
+          "players": 15,
+          "subscribers": 17,
+          "durationSeconds": 20,
+          "inputs": {
+            "perDatabaseOperationDelayMs": 100,
+            "authDelayMs": 50,
+            "emulatedDatabaseOperationSlots": 16,
+            "coalescedReads": false
+          },
+          "requests": 1094,
+          "peakInFlightRequests": 93,
+          "statuses": {
+            "200": 1055,
+            "409": 39
+          },
+          "errors": {
+            "409: Game is busy. Please try again.": 39
+          },
+          "requestLatencyMs": {
+            "p50": 338,
+            "p95": 7332,
+            "max": 13519
+          },
+          "heartbeatLatencyMs": {
+            "p50": 9681,
+            "p95": 13343,
+            "max": 13344
+          },
+          "heartbeats": {
+            "200": 26,
+            "409": 22
+          },
+          "broadcastCallbacks": 51,
+          "deliveredEvents": 867,
+          "drainSeconds": 5.2,
+          "observedSavedPhase": "finalAnswer",
+          "hostPaused": false,
+          "receivedFinalAnswers": 14,
+          "database": {
+            "auth": 1094,
+            "reads": 2265,
+            "rate": 216,
+            "commitAttempts": 1279,
+            "commits": 69,
+            "casConflicts": 1210,
+            "notifications": 69,
+            "sessionBytesRead": 32854191,
+            "sessionBytesWritten": 1031219,
+            "dbPeak": 16,
+            "dbQueuedPeak": 71
+          }
+        },
+        {
+          "name": "15-player Final typing, experimental coalesced reads",
+          "players": 15,
+          "subscribers": 17,
+          "durationSeconds": 20,
+          "inputs": {
+            "perDatabaseOperationDelayMs": 100,
+            "authDelayMs": 50,
+            "emulatedDatabaseOperationSlots": 16,
+            "coalescedReads": true
+          },
+          "requests": 1003,
+          "peakInFlightRequests": 71,
+          "statuses": {
+            "200": 966,
+            "409": 37
+          },
+          "errors": {
+            "409: Game is busy. Please try again.": 37
+          },
+          "requestLatencyMs": {
+            "p50": 311,
+            "p95": 7706,
+            "max": 13444
+          },
+          "heartbeatLatencyMs": {
+            "p50": 8998,
+            "p95": 13203,
+            "max": 13205
+          },
+          "heartbeats": {
+            "200": 28,
+            "409": 20
+          },
+          "broadcastCallbacks": 49,
+          "deliveredEvents": 833,
+          "drainSeconds": 4.8,
+          "observedSavedPhase": "finalAnswer",
+          "hostPaused": false,
+          "receivedFinalAnswers": 11,
+          "database": {
+            "auth": 1003,
+            "reads": 2169,
+            "rate": 216,
+            "commitAttempts": 1274,
+            "commits": 71,
+            "casConflicts": 1203,
+            "notifications": 71,
+            "sessionBytesRead": 32284626,
+            "sessionBytesWritten": 1084239,
+            "dbPeak": 16,
+            "dbQueuedPeak": 55
+          }
+        },
+        {
+          "name": "16-second host heartbeat gap",
+          "status": 200,
+          "paused": true,
+          "reason": "Host disconnected",
+          "note": "A deterministic boundary test, not proof that production latency reached 16 seconds."
+        }
+      ]
+    },
+    {
+      "measuredAt": "2026-11-05T21:08:36.667Z",
+      "runtime": "v24.22.1",
+      "secondsPerTrafficScenario": 20,
+      "scenarios": [
+        {
+          "name": "15-player Final typing, degraded transport",
+          "players": 15,
+          "subscribers": 17,
+          "durationSeconds": 20,
+          "inputs": {
+            "perDatabaseOperationDelayMs": 150,
+            "authDelayMs": 75,
+            "emulatedDatabaseOperationSlots": 16,
+            "coalescedReads": false
+          },
+          "requests": 691,
+          "peakInFlightRequests": 131,
+          "statuses": {
+            "200": 644,
+            "400": 22,
+            "409": 25
+          },
+          "errors": {
+            "400: The game is paused.": 22,
+            "409: Game is busy. Please try again.": 25
+          },
+          "requestLatencyMs": {
+            "p50": 601,
+            "p95": 14156,
+            "max": 20766
+          },
+          "overFunctionBudget30s": 0,
+          "heartbeatLatencyMs": {
+            "p50": 15306,
+            "p95": 20764,
+            "max": 20766
+          },
+          "heartbeats": {
+            "200": 25,
+            "409": 23
+          },
+          "broadcastCallbacks": 28,
+          "deliveredEvents": 476,
+          "drainSeconds": 9.2,
+          "observedSavedPhase": "finalAnswer",
+          "hostPaused": true,
+          "hostPauseReason": "Host disconnected",
+          "receivedFinalAnswers": 11,
+          "database": {
+            "auth": 691,
+            "reads": 1691,
+            "rate": 192,
+            "commitAttempts": 1074,
+            "commits": 49,
+            "casConflicts": 1025,
+            "notifications": 49,
+            "sessionBytesRead": 22890517,
+            "sessionBytesWritten": 671029,
+            "dbPeak": 16,
+            "dbQueuedPeak": 111
+          }
+        }
+      ]
+    },
+    {
+      "measuredAt": "2026-11-05T21:11:43.459Z",
+      "runtime": "v24.22.1",
+      "secondsPerTrafficScenario": 30,
+      "scenarios": [
+        {
+          "name": "15-player Final typing",
+          "players": 15,
+          "subscribers": 17,
+          "durationSeconds": 30,
+          "inputs": {
+            "perDatabaseOperationDelayMs": 10,
+            "authDelayMs": 5,
+            "emulatedDatabaseOperationSlots": 64,
+            "coalescedReads": false
+          },
+          "requests": 8013,
+          "peakInFlightRequests": 90,
+          "statuses": {
+            "200": 7928,
+            "409": 85
+          },
+          "errors": {
+            "409: Game is busy. Please try again.": 70,
+            "409: That action is not available at this stage.": 15
+          },
+          "requestLatencyMs": {
+            "p50": 62,
+            "p95": 357,
+            "max": 3714
+          },
+          "overFunctionBudget30s": 0,
+          "heartbeatLatencyMs": {
+            "p50": 1843,
+            "p95": 3702,
+            "max": 3714
+          },
+          "heartbeats": {
+            "200": 35,
+            "409": 45
+          },
+          "broadcastCallbacks": 431,
+          "deliveredEvents": 7327,
+          "drainSeconds": 0.1,
+          "observedSavedPhase": "finalReveal",
+          "hostPaused": false,
+          "receivedFinalAnswers": 15,
+          "database": {
+            "auth": 8013,
+            "reads": 12273,
+            "rate": 1032,
+            "commitAttempts": 4762,
+            "commits": 432,
+            "casConflicts": 4330,
+            "notifications": 432,
+            "sessionBytesRead": 634642222,
+            "sessionBytesWritten": 21903754,
+            "dbPeak": 63,
+            "dbQueuedPeak": 0
+          }
+        },
+        {
+          "name": "15-player Final typing, degraded transport",
+          "players": 15,
+          "subscribers": 17,
+          "durationSeconds": 30,
+          "inputs": {
+            "perDatabaseOperationDelayMs": 150,
+            "authDelayMs": 75,
+            "emulatedDatabaseOperationSlots": 16,
+            "coalescedReads": false
+          },
+          "requests": 980,
+          "peakInFlightRequests": 127,
+          "statuses": {
+            "200": 913,
+            "409": 67
+          },
+          "errors": {
+            "409: Game is busy. Please try again.": 52,
+            "409: That action is not available at this stage.": 15
+          },
+          "requestLatencyMs": {
+            "p50": 711,
+            "p95": 21751,
+            "max": 28118
+          },
+          "overFunctionBudget30s": 0,
+          "heartbeatLatencyMs": {
+            "p50": 22829,
+            "p95": 27815,
+            "max": 28118
+          },
+          "heartbeats": {
+            "200": 35,
+            "409": 45
+          },
+          "broadcastCallbacks": 40,
+          "deliveredEvents": 680,
+          "drainSeconds": 13.7,
+          "observedSavedPhase": "finalReveal",
+          "hostPaused": false,
+          "receivedFinalAnswers": 9,
+          "database": {
+            "auth": 980,
+            "reads": 2561,
+            "rate": 260,
+            "commitAttempts": 1696,
+            "commits": 63,
+            "casConflicts": 1633,
+            "notifications": 63,
+            "sessionBytesRead": 36752987,
+            "sessionBytesWritten": 898382,
+            "dbPeak": 16,
+            "dbQueuedPeak": 105
+          }
+        }
+      ]
+    }
+  ],
+  "publicReadOnlyProbe": {
+    "observedAt": "2026-11-05T21:01:49.314252+00:00",
+    "baseUrl": "https://lunchandjeopardy.vercel.app",
+    "scope": "Read-only public CDN and unauthenticated function probes; no game, Auth-service, database or Realtime load.",
+    "summary": [
+      {
+        "path": "/",
+        "requests": 15,
+        "statuses": {
+          "200": 15
+        },
+        "endToEndProbeLatencyMs": {
+          "p50": 6826.0,
+          "p95": 6893.7
+        },
+        "routingPrefixes": ["cle1"]
+      },
+      {
+        "path": "/api/player-sessions",
+        "requests": 15,
+        "statuses": {
+          "401": 15
+        },
+        "endToEndProbeLatencyMs": {
+          "p50": 5122.1,
+          "p95": 5231.4
+        },
+        "routingPrefixes": ["cle1"]
+      }
+    ]
+  }
+}
