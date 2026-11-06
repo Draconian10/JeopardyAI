@@ -89,7 +89,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
     }
   }, [s, userId]);
   useEffect(() => {
-    if (!player || s?.phase !== 'finalAnswer' || s.paused) return;
+    if (!player || s?.phase !== 'finalAnswer' || s.paused || remaining <= 0) return;
     const timer = setInterval(async () => {
       if (saveInFlight.current || draftRef.current === lastSaved.current) return;
       saveInFlight.current = true;
@@ -103,7 +103,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
       saveInFlight.current = false;
     }, 500);
     return () => clearInterval(timer);
-  }, [player, s?.phase, s?.paused, send]);
+  }, [player, s?.phase, s?.paused, remaining <= 0, send]);
   const previousPhase = useRef(s?.phase);
   useEffect(() => {
     if (
@@ -320,13 +320,18 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
           {takeControl}
         </div>
       )}
+      {s.hostReconnecting && !s.paused && !ended && (
+        <p className="timeout-notice" role="status">
+          Reconnecting to host — your progress is saved.
+        </p>
+      )}
       {s.paused && !ended && (
         <div className="pause-banner">
           <Pause size={20} />
           <span>
             <b>
               {s.pauseReason === 'Host disconnected'
-                ? 'Host disconnected. Waiting for the host to return.'
+                ? 'Game paused while reconnecting to the host.'
                 : 'Game paused.'}
             </b>{' '}
             Your place and scores are saved.

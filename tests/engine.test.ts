@@ -194,6 +194,7 @@ describe('authoritative buzzer and scoring', () => {
 describe('durable host recovery', () => {
   it('pauses at the disconnect grace boundary and persists the remaining time', () => {
     const s = question();
+    s.deadline = NOW + HOST_GRACE + 15000;
     reconcile(s, NOW + HOST_GRACE + 2000);
     expect(s.paused).toBe(true);
     expect(s.phase).toBe('question');
@@ -202,6 +203,7 @@ describe('durable host recovery', () => {
   });
   it('restores a closed browser days later without ending the session', () => {
     const before = question();
+    before.deadline = NOW + HOST_GRACE + 15000;
     const s = JSON.parse(JSON.stringify(before)) as Session;
     reconcile(s, NOW + 86400000);
     let next = act(s, { type: 'claim', pin: '123456', controller: CONTROL }, HOST, NOW + 86400000, {
@@ -217,7 +219,7 @@ describe('durable host recovery', () => {
   it('resolves deadlines which expire before host-loss detection', () => {
     const s = question();
     s.deadline = NOW + 1000;
-    reconcile(s, NOW + 20000);
+    reconcile(s, NOW + HOST_GRACE + 5000);
     expect(s.phase).toBe('reveal');
     expect(s.paused).toBe(true);
   });
@@ -299,7 +301,8 @@ describe('Daily Double and Final Jeopardy', () => {
   it('preserves Final answers and time through disconnection', () => {
     let s = act(final(), { type: 'openFinal' });
     s = act(s, { type: 'answer', text: 'Saved answer' }, A, NOW + 1000);
-    reconcile(s, NOW + 20000);
+    s.deadline = NOW + HOST_GRACE + 15000;
+    reconcile(s, NOW + HOST_GRACE + 5000);
     expect(s.phase).toBe('finalAnswer');
     expect(s.final[A].text).toBe('Saved answer');
     expect(s.remaining).toBe(15000);

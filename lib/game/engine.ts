@@ -1,7 +1,7 @@
 import type { Board, Command } from './schema';
 import { playable } from './schema';
 import type { Context, JudgmentCheckpoint, Phase, Session, SessionView } from './types';
-export const HOST_GRACE = 15000;
+export const HOST_GRACE = 30000;
 export const QUESTION_MS = 30000;
 export const PRACTICE_PHASES: Phase[] = ['practiceReady', 'practiceOpen', 'practiceAnswer'];
 export const TIE_PHASES: Phase[] = ['tieSetup', 'tieQuestion', 'tieAnswer', 'tieReveal'];
@@ -564,6 +564,13 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       phase('finalAnswer');
       requireThat(player, 'Player not found.', 403);
       requireThat(s.deadline !== undefined && ctx.now < s.deadline, 'Responses are locked.');
+      if (cmd.revision !== undefined)
+        requireThat(
+          cmd.revision > (s.final[player.id].revision ?? 0),
+          'A newer response is already saved. Please retry.',
+          409,
+        );
+      s.final[player.id].revision = cmd.revision ?? (s.final[player.id].revision ?? 0) + 1;
       s.final[player.id].text = cmd.text;
       s.final[player.id].submittedAt = ctx.now;
       break;
@@ -712,7 +719,10 @@ export function viewSession(
     const visible =
       privateHost || id === me?.id || entry.judged || finalDone || id === currentReview;
     entries[id] = visible ? { ...entry } : { score: entry.score, judged: entry.judged };
-    if (!privateHost && id !== me?.id) entries[id].submittedAt = undefined;
+    if (!privateHost && id !== me?.id) {
+      entries[id].submittedAt = undefined;
+      entries[id].revision = undefined;
+    }
     // Submission status without exposing the private wager or answer.
     if (!visible) {
       entries[id].wager = entry.wager === undefined ? undefined : 0;
@@ -732,6 +742,7 @@ export function viewSession(
     createdAt: s.createdAt,
     serverNow: now,
     hostConnected: now - s.hostSeen < HOST_GRACE,
+    hostReconnecting: now - s.hostSeen >= 10000,
     controllerOwned: host && controller === s.controller,
     players: activePlayers(s),
     categories: s.board.categories,

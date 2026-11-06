@@ -6,7 +6,7 @@ import type { Session } from '@/lib/game/types';
 import { parseQuestionJson, MAX_QUESTION_JSON_LENGTH } from '@/lib/game/question-json';
 import { z } from 'zod';
 import { db, hashPin, verifyPin, identity, hostOnly, limit } from '@/lib/server/db';
-import { loadSession, mutate, readSession } from '@/lib/server/sessions';
+import { heartbeat, saveAnswer, loadSession, mutate, readSession } from '@/lib/server/sessions';
 import { createSession, GameError, viewSession } from '@/lib/game/engine';
 import { envelopeSchema, pinSchema, playable, saveSchema, type Board } from '@/lib/game/schema';
 export const runtime = 'nodejs';
@@ -307,16 +307,17 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
         });
       }
       if (req.method === 'GET' && !op) {
-        const { state } = await loadSession(id, user.id);
-        return NextResponse.json(
-          viewSession(
+        const { state, runtimeAt } = await loadSession(id, user.id);
+        return NextResponse.json({
+          ...viewSession(
             state,
             user.id,
             Date.now(),
             controller,
             req.nextUrl.searchParams.get('view') === 'audience',
           ),
-        );
+          runtimeAt,
+        });
       }
       if (req.method === 'POST' && op === 'end') {
         hostOnly(user);
@@ -354,14 +355,19 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
         else if (body.command.type === 'tick') await limit(req, user.id, 'tick', 60, 60);
         else if (body.command.type === 'answer') await limit(req, user.id, 'answers', 240, 60);
         else await limit(req, user.id, 'commands', 240, 60);
-        const state = await mutate(id, body.command, {
+        const context = {
           userId: user.id,
           now: Date.now(),
           controller: body.controller,
           actionId: body.actionId,
           expectedVersion: body.version,
           pinVerified: verified,
-        });
+        };
+        if (body.command.type === 'heartbeat')
+          return NextResponse.json(await heartbeat(id, context));
+        if (body.command.type === 'answer')
+          return NextResponse.json(await saveAnswer(id, body.command, context));
+        const state = await mutate(id, body.command, context);
         return NextResponse.json(viewSession(state, user.id, Date.now(), body.controller));
       }
     }

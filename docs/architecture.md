@@ -17,9 +17,9 @@ A session is a durable JSON aggregate with an incrementing database `version`. E
 5. Calls `commit_session(id, expectedVersion, nextState)`.
 6. Returns success only after the transaction commits.
 
-The PostgreSQL function conditionally updates the expected version, refreshes session memberships, and broadcasts a version-only notification. If a competing write wins, safe commands reload/retry. A buzzer loser sees the accepted respondent instead of creating another winner. Requests delayed beyond a reopened window cannot buzz because each window has a new UUID.
+The PostgreSQL function conditionally updates the expected version, refreshes memberships only when membership changes, and broadcasts a version notification for gameplay. If a competing write wins, safe commands reload/retry. A buzzer loser sees the accepted respondent instead of creating another winner. Requests delayed beyond a reopened window cannot buzz because each window has a new UUID.
 
-Host actions also carry a gameplay `actionVersion` to reject stale judgments or phase transitions. Heartbeats advance the persistence version but not the gameplay version, so ordinary liveness writes do not invalidate a host's pending judgment.
+Host actions also carry a gameplay `actionVersion` to reject stale judgments or phase transitions. Heartbeats update separate presence rows and advance neither version, so ordinary liveness writes do not invalidate a host's pending judgment or contend with gameplay commits.
 
 Mutating requests carry action UUIDs. Durable processed IDs prevent double scoring on replay. Score events record applied deltas. A separate action history records transitions and corrections without storing PINs or duplicating answer text. Undo pops a durable, clue-scoped judgment stack. Later buzzes retain earlier checkpoints; advancing off the clue clears the stack.
 
@@ -59,9 +59,9 @@ Pause is an independent flag, preserving the underlying phase. Explicit End tran
 
 The server uses epoch-millisecond deadlines. The UI estimates its server clock offset from snapshots and renders a local countdown. The server validates submissions independently of that countdown.
 
-During spoken answers, time is stored as remaining milliseconds. Host loss is effective at `hostSeen + 15 seconds`. Reconciliation first resolves any deadline before that boundary, then pauses. If nobody is connected, reconciliation happens on the next request using the same historical boundary. There is no unreliable process-memory timer or browser `beforeunload` dependency.
+During spoken answers, time is stored as remaining milliseconds. Host loss is effective at `hostSeen + 30 seconds`. Reconciliation first resolves any deadline before that boundary, then pauses. If nobody is connected, reconciliation happens on the next request using the same historical boundary. There is no unreliable process-memory timer or browser `beforeunload` dependency.
 
-Realtime notifications trigger authorized snapshot fetches. A three-second polling fallback, deadline fetch, focus/online listeners, and version checks recover dropped/out-of-order messages. Notifications are best effort: a Realtime outage cannot roll back a committed gameplay action.
+Realtime notifications trigger authorized snapshot fetches. Single-flight reads, a trailing refresh, 10-second healthy-Realtime polling / 3-second degraded polling with jitter, deadline fetches, focus/online listeners, and game-version/runtime-snapshot checks recover dropped/out-of-order messages. Notifications are best effort: a Realtime outage cannot roll back a committed gameplay action.
 
 ## Controller ownership
 
@@ -71,7 +71,7 @@ Each reopened host console gets a fresh controller UUID; a newly launched consol
 
 Atomic database buckets enforce PIN attempts, joining, saving, commands, and answer writes. Buckets use HMAC-hashed account/IP identifiers. Command/answer IP limits allow multiple phones behind one router; PIN and join attempts retain tighter shared-IP limits. Supabase Auth has its own authentication rate limits; configure its abuse protections for public deployments.
 
-Session JSON is intentionally simple and suitable for casual rooms. For large numbers of players or rooms, split heartbeats, attempts, and score events into normalized tables, measure CAS contention, and introduce a dedicated room coordinator if latency objectives require it. Keep server-authoritative arbitration and durable state even if the transport changes.
+Session JSON is intentionally simple and suitable for casual rooms. Presence and Final drafts now use private normalized tables. For larger numbers of players or rooms, measure the remaining score/attempt CAS contention, and introduce a dedicated room coordinator if latency objectives require it. Keep server-authoritative arbitration and durable state even if the transport changes.
 
 ## Category-based question JSON
 
@@ -136,3 +136,13 @@ Final review's `finalReviewPlayer` now defines the public reveal boundary for th
 ## Daily Double ownership and lock
 
 On Daily Double selection, the authoritative selector is frozen in `daily.playerId` with `amount: 0, submitted: false`. Strict player-only `dailyWager` carries an amount and cannot nominate another seat; it checks ownership, phase, whole-dollar schema bounds and absolute score, and updates the publicly visible saved wager without revealing the clue. Host/controller-only `openDaily` requires a submitted valid wager and transitions to `dailyAnswer`. Both use existing actionVersion/CAS/dedup guards, so a concurrent wager save invalidates a stale host lock. `submitted` distinguishes an explicit $0 from no submission. Legacy pending records resolve the saved selector without mutation on reads; old `dailyAnswer` records do not require the new flag. Private snapshots and clue answers retain their existing projection boundaries. Undo preserves amount/ownership/submission state. No SQL change is required.
+
+## Scalable runtime (migration 004)
+
+`session_presence` contains narrow per-user presence rows. Host renewals verify the current controller while locking only the lease row; player renewals cannot renew the host. Aggregate commits use the same host-lease lock before the root lock to serialize takeovers and reject stale false-disconnect proposals. Normal heartbeats return small acknowledgements, never update the aggregate/version/history/membership and never broadcast. A late host heartbeat first reconciles the original 30-second lease-loss boundary and then renews; it cannot silently skip a historical pause. Reconnection remains explicit Continue.
+
+`session_final_drafts` is keyed by session/player. `save_final_draft` uses shared phase locks plus an exclusive per-player draft lock, server timestamps, monotonic revisions and private durable `session_final_receipts` for retries, including replays older than the latest draft. Ownership, pause, host lease and deadline checks run in SQL. Drafts do not change aggregate versions or append action history. Only initial submission / blank-vs-nonblank transitions broadcast a status signal. Phase-changing aggregate commits take the exclusive root lock and hydrate the latest accepted drafts before persistence, preventing a stale host snapshot from dropping an accepted response. Runtime reads overlay current presence and drafts for existing pure-engine authorization/scoring/projection. Judged/frozen responses and the score ledger remain in the aggregate. Legacy aggregate answer saves are synchronized during migration-first rollout.
+
+`claim_session_buzz` conditionally validates version/window/phase/respondent/eligibility and uses the guarded commit; a losing claim rejects directly instead of retrying. The pure engine still defines gameplay transitions and scoring. Private runtime RPCs and tables have RLS and deny anonymous/authenticated direct access; only the server service role executes them. SQL exceptions from notification delivery do not undo an accepted save.
+
+Heartbeat and answer API responses are narrow receipts, not full snapshots. The client preserves acknowledged own-response revisions across older in-flight reads, coalesces pending reads, ignores already-seen version signals, and renews immediately on foreground/online events. `runtimeAt` orders metadata snapshots independently of gameplay `version`. Background polling remains active during Realtime failure. Bounded API timeouts include token refresh and release stalled single-flight slots; aborted token refreshes cannot send late requests. Autosave stops at the local deadline while the database remains authoritative. See [rollout and validation](scaling-runtime.md).

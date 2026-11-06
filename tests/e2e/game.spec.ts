@@ -134,6 +134,42 @@ async function mock(page: Page, initial: Session, userId = HOST) {
       const body = request.postDataJSON();
       controller = body.controller;
       try {
+        if (body.command.type === 'heartbeat') {
+          if (userId === HOST && controller !== s.controller)
+            return route.fulfill({
+              status: 409,
+              json: { error: 'Another tab controls this game.' },
+            });
+          reconcile(s, Date.now());
+          if (userId === HOST) s.hostSeen = Date.now();
+          else {
+            const player = s.players.find((p) => p.id === userId && !p.removed);
+            if (player) player.lastSeen = Date.now();
+          }
+          return route.fulfill({
+            json: { kind: 'heartbeat', serverNow: Date.now(), host: userId === HOST },
+          });
+        }
+        if (body.command.type === 'answer') {
+          const next = applyCommand(s, body.command, {
+            userId,
+            now: Date.now(),
+            controller,
+            actionId: body.actionId,
+            expectedVersion: body.version,
+          });
+          s.final[userId] = next.final[userId];
+          const entry = s.final[userId];
+          return route.fulfill({
+            json: {
+              kind: 'answer',
+              serverNow: Date.now(),
+              text: entry.text,
+              submittedAt: entry.submittedAt,
+              revision: entry.revision,
+            },
+          });
+        }
         s = applyCommand(s, body.command, {
           userId,
           now: Date.now(),
@@ -520,7 +556,7 @@ test('a gameplay validation error survives successful synchronization and clears
   await expect(page.locator('.session-container p[role="alert"]')).toBeEmpty();
 });
 
-test('a delayed older fetch failure cannot replace a newer successful connection', async ({
+test('a queued refresh recovers after a delayed fetch failure without losing the score', async ({
   page,
 }) => {
   const s = fixture();
@@ -544,8 +580,9 @@ test('a delayed older fetch failure cannot replace a newer successful connection
   current().players[0].score = 900;
   current().version++;
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-  await expect(page.locator('.personal-score strong')).toHaveText('$900');
+  await expect(page.locator('.personal-score strong')).toHaveText('$600');
   await delayed!.abort('failed');
+  await expect(page.locator('.personal-score strong')).toHaveText('$900');
   await settleFrames(page);
   await expect(page.locator('.session-container p[role="alert"]')).toBeEmpty();
   await expect(page.locator('.connection')).toHaveText('Connected');
@@ -1751,3 +1788,86 @@ for (const role of ['other player', 'audience'] as const) {
     ).toHaveCount(0);
   });
 }
+
+test('Final save receipts preserve game state and do not regress revisions after an older snapshot', async ({
+  page,
+}) => {
+  const s = fixture();
+  s.phase = 'finalAnswer';
+  s.deadline = Date.now() + 30000;
+  s.final = { [PLAYER]: { score: 0, wager: 0, text: '' } };
+  const stale = structuredClone(s);
+  const current = await mock(page, s, PLAYER);
+  await page.goto(`/play/${s.id}`);
+  const response = page.getByRole('textbox', { name: 'Your response', exact: true });
+  await response.fill('First response');
+  await page.getByRole('button', { name: 'Save response', exact: true }).click();
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible();
+  await response.fill('Second response');
+  await page.getByRole('button', { name: 'Save response', exact: true }).click();
+  await expect.poll(() => current().final[PLAYER].revision).toBe(2);
+  expect(current().version).toBe(0);
+  let served = false;
+  await page.route(`**/api/sessions/${s.id}`, async (route) => {
+    served = true;
+    await route.fulfill({ json: viewSession(stale, PLAYER, Date.now()) });
+  });
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect.poll(() => served).toBe(true);
+  await page.waitForTimeout(150);
+  await response.fill('Third response');
+  await page.getByRole('button', { name: 'Save response', exact: true }).click();
+  await expect.poll(() => current().final[PLAYER].revision).toBe(3);
+  expect(current().final[PLAYER].text).toBe('Third response');
+  expect(current().version).toBe(0);
+});
+
+test('a focus burst allows one snapshot request in flight and one trailing refresh', async ({
+  page,
+}) => {
+  const s = fixture();
+  s.phase = 'board';
+  const current = await mock(page, s, PLAYER);
+  await page.goto(`/play/${s.id}`);
+  await expect(page.getByText('Next selection: Alex', { exact: true })).toBeVisible();
+  let active = 0,
+    peak = 0,
+    calls = 0;
+  await page.route(`**/api/sessions/${s.id}`, async (route) => {
+    active++;
+    calls++;
+    peak = Math.max(peak, active);
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    await route.fulfill({ json: viewSession(current(), PLAYER, Date.now()) });
+    active--;
+  });
+  await page.evaluate(() => {
+    for (let i = 0; i < 20; i++) window.dispatchEvent(new Event('focus'));
+  });
+  await page.waitForTimeout(700);
+  expect(peak).toBe(1);
+  expect(calls).toBeLessThanOrEqual(2);
+  expect(calls).toBeGreaterThan(0);
+  await expect(page.getByText('Connected', { exact: true })).toBeVisible();
+});
+
+test('brief host uncertainty shows saved-progress recovery and clears on a fresh presence snapshot', async ({
+  page,
+}) => {
+  const s = fixture();
+  s.phase = 'board';
+  s.hostSeen = Date.now() - 12000;
+  const current = await mock(page, s, PLAYER);
+  await page.goto(`/play/${s.id}`);
+  await expect(
+    page.getByText('Reconnecting to host — your progress is saved.', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText('Host is not online', { exact: true })).toHaveCount(0);
+  current().hostSeen = Date.now();
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(
+    page.getByText('Reconnecting to host — your progress is saved.', { exact: true }),
+  ).toHaveCount(0);
+  await expect(page.locator('.personal-score strong')).toHaveText('$0');
+  expect(current().version).toBe(0);
+});

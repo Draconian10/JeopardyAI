@@ -20,7 +20,7 @@ Client checks provide feedback. Every authoritative check runs on the server or 
 | Final wagers       | Player's own entry; wagering phase; integer 0…absolute pre-Final score; hidden from other players; missing wagers default to zero only when host opens question                         |
 | Final answers      | Own entry; answer phase; unpaused; text ≤2,000 chars; server receipt before deadline; latest saved text retained                                                                        |
 | Final review       | Host/controller; ascending pre-Final score order; no repeated judgment; blanks cannot be correct; all judged before finish                                                              |
-| Standings          | Server score deltas; negative scores allowed; score arithmetic bounded and integral; ties share victory                                                                                 |
+| Standings          | Server score deltas; negative scores allowed; score arithmetic bounded and integral; tied leaders enter sudden death                                                                    |
 | Resume             | Host account and session PIN; unfinished session; fresh controller; session snapshot retained; explicit Continue                                                                        |
 | End                | Host/controller; explicit UI confirmation; terminal phase; further gameplay rejected; history retained                                                                                  |
 | API                | Strict schemas; authenticated bearer identity; same-origin browser mutations; UUID identifiers; bounded body; role/membership/controller checks; rate limits                            |
@@ -36,7 +36,7 @@ Use a configured Supabase project and at least two browser profiles/devices:
 3. Buzz nearly simultaneously. Verify one respondent on every screen.
 4. Mark incorrect; verify the deduction, resumed remaining time, excluded player, and a different player winning.
 5. Verify a correct answer, reveal, standings delta, and inactive tile.
-6. Close the host tab during a countdown. Wait >15 seconds. Reopen Host Game → Resume → enter PIN → Continue. Verify preserved time, code, players, score, and question.
+6. Close the host tab during a countdown. Wait >30 seconds. Reopen Host Game → Resume → enter PIN → Continue. Verify preserved time, code, players, score, and question.
 7. Open another host console; claim it and verify the old console can no longer control or heartbeat.
 8. Play the Daily Double with positive, zero, and negative-score wager bounds.
 9. Complete the board, save Final wagers, type/revise answers, and confirm answer locking at zero.
