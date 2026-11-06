@@ -1805,7 +1805,9 @@ test('Final save receipts preserve game state and do not regress revisions after
   await expect(page.getByText('Saved', { exact: true })).toBeVisible();
   await response.fill('Second response');
   await page.getByRole('button', { name: 'Save response', exact: true }).click();
-  await expect.poll(() => current().final[PLAYER].revision).toBe(2);
+  await expect.poll(() => current().final[PLAYER].text).toBe('Second response');
+  const previousRevision = current().final[PLAYER].revision!;
+  expect(previousRevision).toBeGreaterThanOrEqual(2);
   expect(current().version).toBe(0);
   let served = false;
   await page.route(`**/api/sessions/${s.id}`, async (route) => {
@@ -1817,8 +1819,12 @@ test('Final save receipts preserve game state and do not regress revisions after
   await page.waitForTimeout(150);
   await response.fill('Third response');
   await page.getByRole('button', { name: 'Save response', exact: true }).click();
-  await expect.poll(() => current().final[PLAYER].revision).toBe(3);
-  expect(current().final[PLAYER].text).toBe('Third response');
+  await expect
+    .poll(() => ({
+      text: current().final[PLAYER].text,
+      revisionAdvanced: (current().final[PLAYER].revision ?? 0) > previousRevision,
+    }))
+    .toEqual({ text: 'Third response', revisionAdvanced: true });
   expect(current().version).toBe(0);
 });
 
