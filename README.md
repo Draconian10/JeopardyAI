@@ -230,3 +230,9 @@ The previous build failed the local 15-player Final autosave experiments. Migrat
 ## Deploy the scalable runtime safely
 
 This release requires [migration 004](supabase/migrations/004_scalable_runtime.sql). Use the complete [rollout guide](docs/scaling-runtime.md): apply migrations 001–004 in order in the target Supabase project **before merging/deploying the matching app**, wait for the schema cache refresh, then refresh every host/player/audience tab. Existing games, sessions, scores, accepted Final responses and undo checkpoints remain stored. No new environment variable is required. Keep the new runtime tables private; do not enable public access or Postgres Changes publication on them.
+
+## Host diagnostics, local recovery and live-browser testing
+
+The host's **Connection health** panel shows local request timing, Realtime/fallback mode, snapshot freshness and each player's recorded contact. The editor offers private, host-scoped recovery of board edits and unapplied JSON, without storing the Host PIN field. Restoring an existing board requires explicit Save before replacing its server copy. Neither feature needs a database migration.
+
+For a complete automated game on a staging deployment using fifteen isolated browser profiles on one computer, run `npm run test:live -- --url https://YOUR-STAGING-DEPLOYMENT.vercel.app`. Sign into the dedicated test host once; the runner handles all players, thirty clues, Final, sudden death and CSV. See the [setup, privacy, limits and test instructions](docs/host-tools-and-live-tests.md). Real-deployment execution is separate from the offline runner fixture and local API/SQL load tests.

@@ -33,6 +33,7 @@ import Standings from './standings';
 import DownloadResults from './download-results';
 import ResultsConfetti from './results-confetti';
 import Tiebreaker from './tiebreaker';
+import ConnectionHealthPanel from './connection-health';
 import PracticeRound from './practice-round';
 import DailyDoubleWager from './daily-double-wager';
 import { PRACTICE_PHASES, TIE_PHASES } from '@/lib/game/engine';
@@ -56,6 +57,9 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
     error,
     setError,
     connected,
+    health,
+    refresh,
+    now,
     busy,
     send,
     remaining,
@@ -269,6 +273,8 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
   );
   return (
     <div
+      data-game-phase={s.phase}
+      data-session-transport={health.transport}
       className={`container session-container ${player ? 'player-container' : ''} ${audience ? 'audience-container' : ''}`}
     >
       {s.phase === 'finished' && <ResultsConfetti sessionId={s.id} />}
@@ -292,6 +298,9 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
           </button>
         </div>
       </div>
+      {host && !audience && (
+        <ConnectionHealthPanel s={s} health={health} now={now} refresh={refresh} />
+      )}
       <div className="live-heading">
         <div>
           <span className="eyebrow">
@@ -573,6 +582,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                         return (
                           <button
                             key={tile.id}
+                            data-clue-id={tile.id}
                             className={`board-tile ${tile.used ? 'used' : ''}`}
                             disabled={!control || busy || s.paused || tile.used}
                             onClick={() => void send({ type: 'select', questionId: tile.id })}

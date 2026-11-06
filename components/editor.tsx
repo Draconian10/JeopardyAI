@@ -4,6 +4,12 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Save, Sparkles, Star, Check, Eye } from 'lucide-react';
 import { HostAuth } from './auth';
+import {
+  listBoardDrafts,
+  saveBoardDraft,
+  removeBoardDraft,
+  type BoardDraft,
+} from '@/lib/board-drafts';
 import { api, money } from '@/lib/client';
 import { boardSchema, playable, type Board } from '@/lib/game/schema';
 import { blankBoard, starterBoard } from '@/lib/game/starter';
@@ -13,9 +19,13 @@ import {
   QUESTION_JSON_EXAMPLE,
 } from '@/lib/game/question-json';
 export default function Editor({ id }: { id: string }) {
-  return <HostAuth>{() => <EditorInner id={id} />}</HostAuth>;
+  return (
+    <HostAuth>
+      {(user) => <EditorInner key={`${user.id}:${id}`} id={id} ownerId={user.id} />}
+    </HostAuth>
+  );
 }
-function EditorInner({ id }: { id: string }) {
+function EditorInner({ id, ownerId }: { id: string; ownerId: string }) {
   const [board, setBoard] = useState<Board>();
   const [selected, setSelected] = useState<string>('final');
   const [pin, setPin] = useState('');
@@ -34,11 +44,85 @@ function EditorInner({ id }: { id: string }) {
   const saving = useRef(false);
   const latest = useRef<Board | undefined>(undefined);
   const router = useRouter();
+  const [recoveryCopies, setRecoveryCopies] = useState<BoardDraft[]>([]);
+  const [recoveryId, setRecoveryId] = useState('');
+  const [localStatus, setLocalStatus] = useState('');
+  const recordId = useRef('');
+  const localCopy = useRef<BoardDraft | undefined>(undefined);
+  const restoredCopy = useRef<BoardDraft | undefined>(undefined);
+  const jsonRef = useRef('');
+  const jsonDirty = useRef(false);
+  function backup(next = latest.current, boardId = id) {
+    if (!next) return;
+    recordId.current ||= crypto.randomUUID();
+    const copy: BoardDraft = {
+      schema: 1,
+      ownerId,
+      boardId,
+      recordId: recordId.current,
+      baseVersion: version.current,
+      updatedAt: Date.now(),
+      board: next,
+      jsonText: jsonRef.current,
+      jsonDirty: jsonDirty.current,
+      importOpen: !!jsonRef.current,
+    };
+    try {
+      if (!saveBoardDraft(localStorage, copy)) throw new Error('Storage unavailable');
+      localCopy.current = copy;
+      setLocalStatus(
+        'Recovery copy saved on this browser. It includes clues and responses; the Host PIN field is not stored.',
+      );
+    } catch {
+      setLocalStatus('Local recovery is unavailable. Save the board before leaving this page.');
+    }
+  }
+  function clearBackup() {
+    if (jsonDirty.current) {
+      backup();
+      return;
+    }
+    try {
+      if (localCopy.current) removeBoardDraft(localStorage, localCopy.current);
+      if (restoredCopy.current) removeBoardDraft(localStorage, restoredCopy.current);
+      localCopy.current = restoredCopy.current = undefined;
+      setLocalStatus('Board saved on the server.');
+    } catch {
+      setLocalStatus('Board saved on the server; local recovery storage is unavailable.');
+    }
+  }
+  function findRecovery(serverBoard: Board) {
+    try {
+      const copies = listBoardDrafts(localStorage, ownerId, id).filter((copy) => {
+        if (
+          id !== 'new' &&
+          !copy.jsonDirty &&
+          JSON.stringify(copy.board) === JSON.stringify(serverBoard)
+        ) {
+          removeBoardDraft(localStorage, copy);
+          return false;
+        }
+        return true;
+      });
+      setRecoveryCopies(copies);
+      setRecoveryId(copies[0]?.recordId ?? '');
+    } catch {
+      setLocalStatus('Local recovery is unavailable. Save the board before leaving this page.');
+    }
+  }
+  function updateJson(text: string, pending = true) {
+    setJsonText(text);
+    jsonRef.current = text;
+    jsonDirty.current = pending && !!text.trim();
+    if (dirty.current || jsonDirty.current) backup();
+    else clearBackup();
+  }
   useEffect(() => {
     if (id === 'new') {
       const b = blankBoard();
       setBoard(b);
       latest.current = b;
+      findRecovery(b);
       return;
     }
     api<{ board: Board; version: number }>(`games/${id}`)
@@ -47,13 +131,15 @@ function EditorInner({ id }: { id: string }) {
         latest.current = data.board;
         version.current = data.version;
         setSelected(data.board.questions[0].id);
+        findRecovery(data.board);
       })
       .catch((e) => setError(e.message));
-  }, [id]);
+  }, [id, ownerId]);
   const edit = (next: Board) => {
     setBoard(next);
     latest.current = next;
     dirty.current = true;
+    backup(next);
     setStatus(id === 'new' ? 'Unsaved draft' : 'Unsaved changes');
   };
   useEffect(() => {
@@ -71,8 +157,12 @@ function EditorInner({ id }: { id: string }) {
         version.current = data.version;
         if (latest.current === snapshot) {
           dirty.current = false;
+          clearBackup();
           setStatus('All changes saved');
-        } else setStatus('Unsaved changes');
+        } else {
+          backup();
+          setStatus('Unsaved changes');
+        }
       } catch (e) {
         autoBlocked.current = true;
         setError((e as Error).message);
@@ -85,7 +175,7 @@ function EditorInner({ id }: { id: string }) {
   }, [board, id, status]);
   useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => {
-      if (dirty.current) {
+      if (dirty.current || jsonDirty.current) {
         e.preventDefault();
         e.returnValue = '';
       }
@@ -107,7 +197,22 @@ function EditorInner({ id }: { id: string }) {
       boardSchema.parse(snapshot);
       if (id === 'new') {
         const result = await api<{ id: string }>('games', 'POST', { board: snapshot, pin });
-        dirty.current = false;
+        if (latest.current === snapshot && !jsonDirty.current) {
+          dirty.current = false;
+          clearBackup();
+        } else {
+          // Preserve edits made during the first save and unapplied JSON under the new board ID.
+          const previous = localCopy.current;
+          backup(latest.current, result.id);
+          if (localCopy.current?.boardId === result.id) {
+            try {
+              if (previous) removeBoardDraft(localStorage, previous);
+              if (restoredCopy.current) removeBoardDraft(localStorage, restoredCopy.current);
+            } catch {
+              /* Keep the original copy if storage is unavailable. */
+            }
+          }
+        }
         router.replace(`/host/edit/${result.id}`);
       } else {
         const result = await api<{ version: number }>(`games/${id}`, 'PUT', {
@@ -116,7 +221,10 @@ function EditorInner({ id }: { id: string }) {
           version: version.current,
         });
         version.current = result.version;
-        if (latest.current === snapshot) dirty.current = false;
+        if (latest.current === snapshot) {
+          dirty.current = false;
+          clearBackup();
+        } else backup();
         autoBlocked.current = false;
         setPin('');
         setStatus('All changes saved');
@@ -169,6 +277,96 @@ function EditorInner({ id }: { id: string }) {
       <p className="error" role="alert">
         {error}
       </p>
+      {!!recoveryCopies.length &&
+        (() => {
+          const copy =
+            recoveryCopies.find((item) => item.recordId === recoveryId) ?? recoveryCopies[0];
+          return (
+            <section className="panel draft-recovery" aria-label="Unsaved board recovery">
+              <h2>Recover an unsaved board draft?</h2>
+              <p>
+                A copy of “{copy.board.title}” from {new Date(copy.updatedAt).toLocaleString()} is
+                available on this browser. Your host PIN was not stored.
+              </p>
+              {recoveryCopies.length > 1 && (
+                <label>
+                  Recovery copy
+                  <select value={copy.recordId} onChange={(e) => setRecoveryId(e.target.value)}>
+                    {recoveryCopies.map((item) => (
+                      <option value={item.recordId} key={item.recordId}>
+                        {item.board.title} · {new Date(item.updatedAt).toLocaleString()}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {id !== 'new' && copy.baseVersion !== version.current && (
+                <p className="error">
+                  The server board has changed since this copy. Review the recovered content
+                  carefully before saving.
+                </p>
+              )}
+              <p className="muted small">
+                Restoring changes this editor only. Save board when you are ready to replace the
+                server copy. Recovery copies expire after seven days; up to five are kept per board
+                for this host.
+              </p>
+              <div className="button-row">
+                <button
+                  type="button"
+                  className="button primary"
+                  disabled={busy || importBusy}
+                  onClick={() => {
+                    if (
+                      (dirty.current || jsonDirty.current) &&
+                      !confirm(
+                        'Replace the changes currently in this editor with the recovery copy?',
+                      )
+                    )
+                      return;
+                    autoBlocked.current = true;
+                    restoredCopy.current = copy;
+                    jsonRef.current = copy.jsonText;
+                    jsonDirty.current = copy.jsonDirty;
+                    setJsonText(copy.jsonText);
+                    setImportOpen(copy.importOpen);
+                    edit(copy.board);
+                    setSelected(copy.board.questions[0].id);
+                    setPreview(false);
+                    setStatus('Recovered draft — review and Save board');
+                    setRecoveryCopies([]);
+                  }}
+                >
+                  Restore draft
+                </button>
+                <button
+                  type="button"
+                  className="button secondary"
+                  disabled={busy || importBusy}
+                  onClick={() => {
+                    try {
+                      if (!removeBoardDraft(localStorage, copy)) throw new Error('Copy changed');
+                      setRecoveryCopies((copies) =>
+                        copies.filter((item) => item.recordId !== copy.recordId),
+                      );
+                    } catch {
+                      setLocalStatus(
+                        'Could not discard this recovery copy. Reload to review the latest copies.',
+                      );
+                    }
+                  }}
+                >
+                  Discard recovery copy
+                </button>
+              </div>
+            </section>
+          );
+        })()}
+      {!!localStatus && (
+        <p className="local-draft-status" role="status" aria-label="Local recovery status">
+          {localStatus}
+        </p>
+      )}
       <section className="panel json-import-panel">
         <div className="section-line">
           <div>
@@ -206,7 +404,7 @@ function EditorInner({ id }: { id: string }) {
                 className="button secondary"
                 disabled={importBusy}
                 onClick={() => {
-                  setJsonText(QUESTION_JSON_EXAMPLE);
+                  updateJson(QUESTION_JSON_EXAMPLE);
                   setImportError('');
                 }}
               >
@@ -217,7 +415,7 @@ function EditorInner({ id }: { id: string }) {
                 className="button secondary"
                 disabled={importBusy}
                 onClick={() => {
-                  setJsonText(JSON.stringify(boardToQuestionJson(board), null, 2));
+                  updateJson(JSON.stringify(boardToQuestionJson(board), null, 2), false);
                   setImportError('');
                 }}
               >
@@ -234,7 +432,7 @@ function EditorInner({ id }: { id: string }) {
               value={jsonText}
               disabled={importBusy}
               onChange={(e) => {
-                setJsonText(e.target.value);
+                updateJson(e.target.value);
                 setImportError('');
                 setImportNotice('');
               }}
@@ -257,10 +455,13 @@ function EditorInner({ id }: { id: string }) {
                       text: jsonText,
                     });
                     if (!window.confirm('Replace the current board with these JSON clues?')) return;
+                    jsonDirty.current = false;
                     edit(result.board);
                     setSelected(result.board.questions[0].id);
                     setPreview(false);
-                    setJsonText(JSON.stringify(boardToQuestionJson(result.board), null, 2));
+                    jsonRef.current = JSON.stringify(boardToQuestionJson(result.board), null, 2);
+                    setJsonText(jsonRef.current);
+                    backup(result.board);
                     setImportNotice(
                       `Imported ${result.board.questions.length} clues across ${result.board.categories.length} categories. ${id === 'new' ? 'Set your host PIN and save the board.' : 'Save the board or wait for autosave.'}`,
                     );
@@ -317,7 +518,9 @@ function EditorInner({ id }: { id: string }) {
               'DRAFT'
             )}
           </span>
-          <small role="status">{status}</small>
+          <small role="status" aria-label="Server save status">
+            {status}
+          </small>
         </div>
       </div>
       <div className="editor-toolbar">
