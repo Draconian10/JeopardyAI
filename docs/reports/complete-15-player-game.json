@@ -1,0 +1,40 @@
+{
+  "measuredAt": "2026-11-06T03:00:11.025Z",
+  "runtime": "v24.22.1",
+  "scope": "Actual Next route handlers, identity/rate-limit code, engine, persistence retry loops and all SQL migrations. Auth identity verification and Supabase transport/Realtime delivery are emulated; PostgreSQL is local PGlite. Artificial latency/concurrency are experiment inputs, not measured production limits.",
+  "scenarios": [
+    {
+      "name": "Complete 15-player game: API/SQL integration",
+      "players": 15,
+      "cluesCompleted": 30,
+      "checks": [
+        "15 authenticated identities joined through the API",
+        "practice arbitration, unchanged scores and first selector",
+        "two judgment undos, pause/takeover/resume and rejection of old controller",
+        "selector-owned Daily Double, player wager, host lock and undo",
+        "all 30 board clues completed, with 15 consistent player projections after every clue",
+        "full 30-second Final: 15 players repeatedly autosaved, with concurrent presence and polling; all latest acknowledgements retained",
+        "all 15 Final judgments, 15-way tie, fifteen misses without a default winner, second clue, unique winner and CSV"
+      ],
+      "finalResponsesRetained": 15,
+      "phase": "finished",
+      "unexpectedRecordedErrors": 0,
+      "database": {
+        "presenceWrites": 99,
+        "draftWrites": 810,
+        "auth": 1804,
+        "reads": 1353,
+        "rate": 2520,
+        "commitAttempts": 576,
+        "commits": 218,
+        "casConflicts": 358,
+        "notifications": 233,
+        "sessionBytesRead": 47347488,
+        "sessionBytesWritten": 7752705,
+        "dbPeak": 16,
+        "dbQueuedPeak": 17
+      },
+      "scope": "Local real API handlers and all migrations; Supabase Auth/Realtime transport emulated. Not a fifteen-browser or deployed-cloud test."
+    }
+  ]
+}
