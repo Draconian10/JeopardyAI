@@ -12,6 +12,8 @@ export async function identity(req: NextRequest) {
   const token = req.headers.get('authorization')?.replace(/^Bearer /, '');
   if (!token || token.length > 8192) throw new GameError('Please sign in or join again.', 401);
   const { data, error } = await db().auth.getUser(token);
+  if (error && (!error.status || error.status === 429 || error.status >= 500))
+    throw new GameError('Sign-in service is temporarily unavailable. Please retry.', 503);
   if (error || !data.user) throw new GameError('Your session expired. Sign in again.', 401);
   return data.user;
 }
@@ -45,9 +47,11 @@ export async function limit(
     const { data, error } = await db().rpc('consume_rate_limit', {
       p_key: key,
       p_limit:
-        subject === ip && ['commands', 'answers', 'heartbeat', 'tick'].includes(scope)
-          ? count * 50
-          : count,
+        subject === ip && scope === 'join'
+          ? count * 10
+          : subject === ip && ['commands', 'answers', 'heartbeat', 'tick'].includes(scope)
+            ? count * 50
+            : count,
       p_seconds: seconds,
     });
     if (error) throw new GameError('Rate limit service unavailable.', 503);

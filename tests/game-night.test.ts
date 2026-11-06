@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyCommand, createSession, reconcile, viewSession } from '@/lib/game/engine';
+import { applyCommand, createSession, reconcile, viewSession, HOST_GRACE } from '@/lib/game/engine';
 import { commandSchema, type Command } from '@/lib/game/schema';
 import { starterBoard } from '@/lib/game/starter';
 import { rankedStandings } from '@/lib/game/standings';
@@ -123,7 +123,7 @@ describe('practice buzzer', () => {
     let s = act(lobby(), { type: 'practiceStart' });
     s = act(s, { type: 'buzz', windowId: s.windowId! }, B);
     const restored = JSON.parse(JSON.stringify(s));
-    reconcile(restored, NOW + 20000);
+    reconcile(restored, NOW + HOST_GRACE + 5000);
     expect(restored.paused).toBe(true);
     expect(restored.respondent).toBe(B);
     expect(restored.phase).toBe('practiceAnswer');
@@ -203,7 +203,7 @@ describe('optional response deadline', () => {
     const restored = JSON.parse(JSON.stringify(s)) as Session;
     reconcile(restored, NOW + 86400000);
     expect(restored.phase).toBe('answering');
-    expect(restored.answerRemaining).toBe(16000);
+    expect(restored.answerRemaining).toBe(1000);
     expect(restored.players[0].score).toBe(0);
     let next = act(
       restored,
@@ -213,14 +213,14 @@ describe('optional response deadline', () => {
       { pinVerified: true },
     );
     next = act(next, { type: 'continue' }, HOST, NOW + 86400000);
-    expect(next.answerDeadline).toBe(NOW + 86400000 + 16000);
+    expect(next.answerDeadline).toBe(NOW + 86400000 + 1000);
   });
   it('resolves an answer expiry before the disconnect pause boundary', () => {
     const s = answering(10);
     reconcile(s, NOW + 86400000);
     expect(s.phase).toBe('question');
     expect(s.paused).toBe(true);
-    expect(s.remaining).toBe(25000);
+    expect(s.remaining).toBe(10000);
     expect(s.players[0].score).toBe(-200);
   });
   it('reveals after the final eligible player times out', () => {

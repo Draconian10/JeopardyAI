@@ -3,7 +3,7 @@ import { beforeAll, afterAll, it, expect, vi } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { NextRequest } from 'next/server';
-import { createSession } from '@/lib/game/engine';
+import { createSession, HOST_GRACE } from '@/lib/game/engine';
 import { starterBoard } from '@/lib/game/starter';
 import type { Session, SessionView } from '@/lib/game/types';
 import type { Command } from '@/lib/game/schema';
@@ -15,12 +15,21 @@ const pg = new PGlite();
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const reports: unknown[] = [];
 const folder = process.env.STRESS_OUTPUT_DIR ?? 'test-results/stress';
+function record(value: unknown) {
+  reports.push(value);
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(
+    `${folder}/progress.json`,
+    JSON.stringify({ completedScenarios: reports.length, scenarios: reports }, null, 2),
+  );
+}
 let host = '',
   controller = '',
   game = '',
   session = '';
 let users: string[] = [];
-let notify: (() => void) | undefined;
+let hosts = new Set<string>();
+let notify: ((id?: string) => void) | undefined;
 let latency = 0,
   authLatency = 0,
   slots = 64,
@@ -29,6 +38,8 @@ let waiters: (() => void)[] = [];
 let metrics = freshMetrics();
 function freshMetrics() {
   return {
+    presenceWrites: 0,
+    draftWrites: 0,
     auth: 0,
     reads: 0,
     rate: 0,
@@ -66,7 +77,7 @@ function client() {
         metrics.auth++;
         if (authLatency) await sleep(authLatency);
         return users.includes(token)
-          ? { data: { user: { id: token, is_anonymous: token !== host } }, error: null }
+          ? { data: { user: { id: token, is_anonymous: !hosts.has(token) } }, error: null }
           : { data: { user: null }, error: { message: 'Unknown test identity' } };
       },
     },
@@ -114,20 +125,57 @@ function client() {
           );
           return { data: r.rows[0].ok, error: null };
         }
-        if (name !== 'commit_session') throw new Error(`Unexpected RPC ${name}`);
+        if (name === 'read_session_runtime') {
+          metrics.reads++;
+          const r = await pg.query<{ r: { state: Session } }>(
+            'select public.read_session_runtime($1) r',
+            [args.p_id],
+          );
+          const row = r.rows[0].r;
+          if (row) metrics.sessionBytesRead += Buffer.byteLength(JSON.stringify(row.state));
+          return { data: row, error: null };
+        }
+        if (name === 'touch_session_presence') {
+          const r = await pg.query<{ r: Record<string, unknown> }>(
+            'select public.touch_session_presence($1,$2,$3) r',
+            [args.p_id, args.p_user, args.p_controller],
+          );
+          if (!r.rows[0].r.error) metrics.presenceWrites++;
+          return { data: r.rows[0].r, error: null };
+        }
+        if (name === 'save_final_draft') {
+          const r = await pg.query<{ r: Record<string, unknown> }>(
+            'select public.save_final_draft($1,$2,$3,$4,$5) r',
+            [args.p_id, args.p_user, args.p_text, args.p_revision, args.p_action],
+          );
+          if (!r.rows[0].r.error) metrics.draftWrites++;
+          if (r.rows[0].r.statusChanged) {
+            metrics.notifications++;
+            queueMicrotask(() => notify?.(String(args.p_id)));
+          }
+          return { data: r.rows[0].r, error: null };
+        }
+        if (!['commit_session', 'claim_session_buzz'].includes(name))
+          throw new Error(`Unexpected RPC ${name}`);
         metrics.commitAttempts++;
         const json = JSON.stringify(args.p_state);
-        const r = await pg.query<{ ok: boolean }>('select public.commit_session($1,$2,$3) as ok', [
-          args.p_id,
-          args.p_expected,
-          json,
-        ]);
+        const r =
+          name === 'claim_session_buzz'
+            ? await pg.query<{ ok: boolean }>(
+                'select public.claim_session_buzz($1,$2,$3,$4,$5) ok',
+                [args.p_id, args.p_expected, args.p_window, args.p_user, json],
+              )
+            : await pg.query<{ ok: boolean }>('select public.commit_session($1,$2,$3) ok', [
+                args.p_id,
+                args.p_expected,
+                json,
+              ]);
         if (r.rows[0].ok) {
           metrics.commits++;
           metrics.sessionBytesWritten += Buffer.byteLength(json);
           metrics.notifications++;
           // This models delivery to subscriber callbacks, not the actual Supabase WebSocket service.
-          queueMicrotask(() => notify?.());
+          queueMicrotask(() => notify?.(String(args.p_id)));
         } else metrics.casConflicts++;
         return { data: r.rows[0].ok, error: null };
       }),
@@ -148,7 +196,12 @@ beforeAll(async () => {
     create function realtime.topic() returns text language sql stable as $$ select current_setting('realtime.topic',true) $$;
     create function realtime.send(payload jsonb,event text,topic text,private boolean) returns void language sql as $$ insert into realtime.messages(extension,topic,payload) values('broadcast',topic,payload) $$;
   `);
-  for (const f of ['001_initial.sql', '002_question_json.sql', '003_saved_tiebreakers.sql'])
+  for (const f of [
+    '001_initial.sql',
+    '002_question_json.sql',
+    '003_saved_tiebreakers.sql',
+    '004_scalable_runtime.sql',
+  ])
     await pg.exec(readFileSync(`supabase/migrations/${f}`, 'utf8'));
   transport.client = client();
   mkdirSync(folder, { recursive: true });
@@ -184,6 +237,7 @@ async function seed(count: number, phase: 'lobby' | 'board' | 'finalAnswer' = 'b
   controller = crypto.randomUUID();
   game = crypto.randomUUID();
   users = [host, ...Array.from({ length: count }, () => crypto.randomUUID())];
+  hosts = new Set([host]);
   for (const id of users) await pg.query('insert into auth.users(id) values($1)', [id]);
   const s = createSession(starterBoard(), game, host, '123456', Date.now(), controller);
   s.phase = phase;
@@ -216,8 +270,22 @@ async function seed(count: number, phase: 'lobby' | 'board' | 'finalAnswer' = 'b
   metrics = freshMetrics();
   return s;
 }
-async function route(user: string, command?: Command, version = 0, join = false, audience = false) {
-  const path = join ? ['join'] : command ? ['sessions', session, 'command'] : ['sessions', session];
+async function route(
+  user: string,
+  command?: Command,
+  version = 0,
+  join = false,
+  audience = false,
+  room?: { id: string; host: string; controller: string },
+) {
+  const targetSession = room?.id ?? session;
+  const targetHost = room?.host ?? host;
+  const targetController = room?.controller ?? controller;
+  const path = join
+    ? ['join']
+    : command
+      ? ['sessions', targetSession, 'command']
+      : ['sessions', targetSession];
   const req = new NextRequest(
     `http://stress.local/api/${path.join('/')}${audience ? '?view=audience' : ''}`,
     {
@@ -225,7 +293,7 @@ async function route(user: string, command?: Command, version = 0, join = false,
       headers: {
         authorization: `Bearer ${user}`,
         'x-forwarded-for': '203.0.113.15',
-        ...(user === host ? { 'x-controller': controller } : {}),
+        ...(user === targetHost ? { 'x-controller': targetController } : {}),
         'content-type': 'application/json',
       },
       ...(command || join
@@ -237,7 +305,7 @@ async function route(user: string, command?: Command, version = 0, join = false,
                     command,
                     actionId: crypto.randomUUID(),
                     version,
-                    controller: user === host ? controller : undefined,
+                    controller: user === targetHost ? targetController : undefined,
                   },
             ),
           }
@@ -254,9 +322,10 @@ async function route(user: string, command?: Command, version = 0, join = false,
 }
 async function state() {
   return (
-    await pg.query<{ state: Session }>('select state from public.sessions where id=$1', [session])
-  ).rows[0].state;
+    await pg.query<{ r: { state: Session } }>('select public.read_session_runtime($1) r', [session])
+  ).rows[0].r.state;
 }
+
 function percentiles(values: number[]) {
   const v = [...values].sort((a, b) => a - b);
   return {
@@ -278,8 +347,8 @@ it('15 concurrent joins and shared-Wi-Fi retry rate limits', async () => {
   const first = await Promise.all(users.slice(1).map((u) => route(u, undefined, 0, true)));
   expect(first.filter((r) => r.status === 200)).toHaveLength(15);
   const retry = await Promise.all(users.slice(1).map((u) => route(u, undefined, 0, true)));
-  expect(retry.filter((r) => r.status === 429)).toHaveLength(10);
-  reports.push({
+  expect(retry.filter((r) => r.status === 200)).toHaveLength(15);
+  record({
     name: '15 joins then 15 repeated Join-button requests within one minute, same public IP',
     first: histogram(first.map((r) => r.status)),
     retry: histogram(retry.map((r) => r.status)),
@@ -317,7 +386,7 @@ it('one winner from 15 simultaneous buzzes across 20 clues', async () => {
   expect(saved.players.reduce((sum, p) => sum + p.score, 0)).toBe(
     15000 + saved.events.reduce((sum, e) => sum + e.delta, 0),
   );
-  reports.push({
+  record({
     name: '20 rounds × 15 simultaneous buzzes',
     rounds: rounds.length,
     successfulWinners: 20,
@@ -334,9 +403,9 @@ async function traffic(
   final: boolean,
   delay: number,
   capacity: number,
-  coalesce = false,
+  coalesce = true,
 ) {
-  await seed(count, final ? 'finalAnswer' : 'board');
+  const seeded = await seed(count, final ? 'finalAnswer' : 'board');
   latency = delay;
   authLatency = delay / 2;
   slots = capacity;
@@ -404,15 +473,16 @@ async function traffic(
   const timers: ReturnType<typeof setInterval>[] = [];
   clients.forEach((_, i) => {
     refresh(i, 'initial');
-    timers.push(setInterval(() => refresh(i, 'poll'), 3000));
+    timers.push(setInterval(() => refresh(i, 'poll'), 10000));
   });
-  users.forEach((u) =>
+  users.forEach((u) => {
+    launch(u, 'heartbeat', { type: 'heartbeat' });
     timers.push(
       setInterval(() => {
         if (running) launch(u, 'heartbeat', { type: 'heartbeat' });
       }, 5000),
-    ),
-  );
+    );
+  });
   if (final)
     users.slice(1).forEach((u, i) => {
       let edits = 0;
@@ -421,6 +491,7 @@ async function traffic(
           const snapshot = snapshots.get(u);
           if (
             running &&
+            Date.now() < seeded.deadline! &&
             snapshot?.phase === 'finalAnswer' &&
             !snapshot.paused &&
             !answerBusy.has(u)
@@ -437,6 +508,13 @@ async function traffic(
         }, 500),
       );
     });
+  if (final && seeded.deadline)
+    timers.push(
+      setTimeout(
+        () => clients.forEach((_, i) => refresh(i, 'deadline')),
+        Math.max(0, seeded.deadline - Date.now()),
+      ),
+    );
   await sleep(duration);
   running = false;
   notify = undefined;
@@ -444,6 +522,7 @@ async function traffic(
   const drainStart = performance.now();
   while (outstanding.size) await Promise.all([...outstanding]);
   const drainSeconds = Math.round((performance.now() - drainStart) / 100) / 10;
+  if (final && Date.now() >= seeded.deadline!) await route(host);
   const saved = await state();
   const hb = samples.filter((s) => s.kind === 'heartbeat');
   const result = {
@@ -476,9 +555,17 @@ async function traffic(
     receivedFinalAnswers: Object.values(saved.final).filter((e) => e.text).length,
     database: { ...metrics },
   };
-  reports.push(result);
+  record(result);
   console.log(JSON.stringify(result));
   expect(saved.players).toHaveLength(count);
+  expect(saved.paused).toBe(false);
+  const unexpected = samples.filter(
+    (s) =>
+      s.status !== 200 &&
+      !(s.kind === 'answer' && s.status === 409 && s.error === 'Responses are locked.'),
+  );
+  expect(unexpected).toEqual([]);
+  if (final) expect(Object.values(saved.final).filter((e) => e.text)).toHaveLength(count);
 }
 it('4 players idle, 10ms operations / 64 slots', () =>
   traffic('4-player baseline idle', 4, false, 10, 64));
@@ -490,21 +577,222 @@ it('15 players Final answer autosave, 100ms operations / 16 slots', () =>
   traffic('15-player Final typing, slower constrained transport', 15, true, 100, 16));
 it('15 players Final answer autosave, 150ms operations / 16 slots', () =>
   traffic('15-player Final typing, degraded transport', 15, true, 150, 16));
-it('15 players Final answer autosave, same slow transport, single-flight reads only', () =>
-  traffic('15-player Final typing, experimental coalesced reads', 15, true, 100, 16, true));
-it('a host heartbeat arriving after the 15-second boundary leaves a durable pause', async () => {
+it('15 players Final answer autosave, same slow transport, uncoalesced snapshot experiment', () =>
+  traffic('15-player Final typing, experimental uncoalesced reads', 15, true, 100, 16, false));
+it('a host heartbeat arriving after the 30-second lease boundary leaves a durable pause', async () => {
   const s = await seed(15);
-  s.hostSeen = Date.now() - 16000;
+  s.hostSeen = Date.now() - HOST_GRACE - 1000;
   await pg.query('update public.sessions set state=$2 where id=$1', [session, JSON.stringify(s)]);
   const r = await route(host, { type: 'heartbeat' });
   expect(r.status).toBe(200);
-  expect(r.body.paused).toBe(true);
-  expect(r.body.pauseReason).toBe('Host disconnected');
-  reports.push({
-    name: '16-second host heartbeat gap',
+  expect(r.body).toHaveProperty('needsRefresh', true);
+  const snapshot = await route(host);
+  expect(snapshot.body.paused).toBe(true);
+  expect(snapshot.body.pauseReason).toBe('Host disconnected');
+  record({
+    name: '31-second host heartbeat gap',
     status: r.status,
-    paused: r.body.paused,
-    reason: r.body.pauseReason,
-    note: 'A deterministic boundary test, not proof that production latency reached 16 seconds.',
+    paused: snapshot.body.paused,
+    reason: snapshot.body.pauseReason,
+    note: 'A deterministic boundary test, not proof that production latency reached 31 seconds.',
+  });
+});
+
+it('three independent 15-player rooms stay healthy through a full Final and one-minute presence run', async () => {
+  const first = await seed(15, 'finalAnswer');
+  type Room = { id: string; host: string; controller: string; players: string[]; deadline: number };
+  const rooms: Room[] = [
+    { id: first.id, host, controller, players: users.slice(1), deadline: first.deadline! },
+  ];
+  for (let i = 1; i < 3; i++) {
+    const owner = crypto.randomUUID(),
+      seats = Array.from({ length: 15 }, () => crypto.randomUUID()),
+      control = crypto.randomUUID(),
+      gid = crypto.randomUUID();
+    for (const id of [owner, ...seats]) await pg.query('insert into auth.users values($1)', [id]);
+    users.push(owner, ...seats);
+    hosts.add(owner);
+    const s = createSession(starterBoard(), gid, owner, String(123456 + i), Date.now(), control);
+    s.phase = 'finalAnswer';
+    s.deadline = Date.now() + 30000;
+    s.players = seats.map((id, n) => ({
+      id,
+      name: `Room ${i} player ${n}`,
+      score: 1000,
+      lastSeen: Date.now(),
+      removed: false,
+    }));
+    s.final = Object.fromEntries(seats.map((id) => [id, { score: 1000, wager: 100, text: '' }]));
+    await pg.query('insert into public.games(id,owner_id,board,pin_hash) values($1,$2,$3,$4)', [
+      gid,
+      owner,
+      JSON.stringify(s.board),
+      'stress',
+    ]);
+    await pg.query(
+      'insert into public.sessions(id,game_id,host_id,join_code,state,pin_hash) values($1,$2,$3,$4,$5,$6)',
+      [s.id, gid, owner, s.joinCode, JSON.stringify(s), 'stress'],
+    );
+    rooms.push({
+      id: s.id,
+      host: owner,
+      controller: control,
+      players: seats,
+      deadline: s.deadline,
+    });
+  }
+  latency = 100;
+  authLatency = 50;
+  slots = 16;
+  let running = true,
+    peak = 0,
+    activeRequests = 0,
+    broadcasts = 0;
+  const outstanding = new Set<Promise<void>>(),
+    readBusy = new Set<string>(),
+    readAgain = new Set<string>(),
+    answerBusy = new Set<string>();
+  const snapshots = new Map<string, SessionView>();
+  const samples: { kind: string; status: number; ms: number; error?: string }[] = [];
+  const timers: ReturnType<typeof setInterval>[] = [];
+  const launch = (
+    room: Room,
+    user: string,
+    kind: string,
+    command?: Command,
+    audience = false,
+    done?: () => void,
+  ) => {
+    activeRequests++;
+    peak = Math.max(peak, activeRequests);
+    const task = route(user, command, 0, false, audience, room)
+      .then((r) => {
+        samples.push({ kind, status: r.status, ms: r.ms, error: r.body.error });
+        const key = room.id + user;
+        if (r.body.phase && (!snapshots.has(key) || r.body.version >= snapshots.get(key)!.version))
+          snapshots.set(key, r.body);
+      })
+      .finally(() => {
+        activeRequests--;
+        outstanding.delete(task);
+        done?.();
+      });
+    outstanding.add(task);
+  };
+  const refresh = (room: Room, user: string, audience = false) => {
+    if (!running) return;
+    const key = room.id + user + (audience ? 'audience' : '');
+    if (readBusy.has(key)) {
+      readAgain.add(key);
+      return;
+    }
+    readBusy.add(key);
+    launch(room, user, 'snapshot', undefined, audience, () => {
+      readBusy.delete(key);
+      if (readAgain.delete(key) && running) refresh(room, user, audience);
+    });
+  };
+  notify = (id) => {
+    if (!running) return;
+    broadcasts++;
+    const room = rooms.find((r) => r.id === id);
+    if (!room) return;
+    [room.host, ...room.players].forEach((user) => refresh(room, user));
+    refresh(room, room.host, true);
+  };
+  for (const room of rooms) {
+    for (const user of [room.host, ...room.players]) {
+      refresh(room, user);
+      launch(room, user, 'heartbeat', { type: 'heartbeat' });
+      timers.push(
+        setInterval(() => {
+          if (running) launch(room, user, 'heartbeat', { type: 'heartbeat' });
+        }, 5000),
+      );
+      timers.push(setInterval(() => refresh(room, user), 10000));
+    }
+    refresh(room, room.host, true);
+    timers.push(setInterval(() => refresh(room, room.host, true), 10000));
+    timers.push(
+      setTimeout(
+        () => {
+          [room.host, ...room.players].forEach((user) => refresh(room, user));
+          refresh(room, room.host, true);
+        },
+        Math.max(0, room.deadline - Date.now()),
+      ),
+    );
+    for (const user of room.players) {
+      let edits = 0;
+      const key = room.id + user;
+      timers.push(
+        setInterval(() => {
+          const view = snapshots.get(key);
+          if (
+            !running ||
+            Date.now() >= room.deadline ||
+            view?.phase !== 'finalAnswer' ||
+            view.paused ||
+            answerBusy.has(key)
+          )
+            return;
+          answerBusy.add(key);
+          launch(
+            room,
+            user,
+            'answer',
+            { type: 'answer', text: `Room response ${++edits}` },
+            false,
+            () => answerBusy.delete(key),
+          );
+        }, 500),
+      );
+    }
+  }
+  await sleep(60000);
+  running = false;
+  notify = undefined;
+  timers.forEach(clearInterval);
+  while (outstanding.size) await Promise.all([...outstanding]);
+  const states = [];
+  for (const room of rooms) {
+    await route(room.host, undefined, 0, false, false, room);
+    states.push(
+      (
+        await pg.query<{ r: { state: Session } }>('select public.read_session_runtime($1) r', [
+          room.id,
+        ])
+      ).rows[0].r.state,
+    );
+  }
+  expect(states.every((s) => !s.paused && s.phase === 'finalReveal')).toBe(true);
+  expect(states.map((s) => Object.values(s.final).filter((e) => e.text).length)).toEqual([
+    15, 15, 15,
+  ]);
+  const unexpected = samples.filter(
+    (s) =>
+      s.status !== 200 &&
+      !(s.kind === 'answer' && s.status === 409 && s.error === 'Responses are locked.'),
+  );
+  expect(unexpected).toEqual([]);
+  record({
+    name: '3 rooms × 15 players, full Final then 60-second presence observation',
+    players: 45,
+    subscribers: 51,
+    durationSeconds: 60,
+    inputs: {
+      perDatabaseOperationDelayMs: 100,
+      authDelayMs: 50,
+      emulatedDatabaseOperationSlots: 16,
+    },
+    requests: samples.length,
+    peakInFlightRequests: peak,
+    statuses: histogram(samples.map((s) => s.status)),
+    unexpectedErrors: unexpected.length,
+    heartbeatLatencyMs: percentiles(samples.filter((s) => s.kind === 'heartbeat').map((s) => s.ms)),
+    responsesPerRoom: states.map((s) => Object.values(s.final).filter((e) => e.text).length),
+    pausedRooms: states.filter((s) => s.paused).length,
+    broadcastCallbacks: broadcasts,
+    database: { ...metrics },
   });
 });

@@ -40,6 +40,7 @@ export interface FinalEntry {
   wager?: number;
   text: string;
   submittedAt?: number;
+  revision?: number;
   judged?: boolean;
   correct?: boolean;
 }
@@ -134,6 +135,8 @@ export interface SessionView {
   createdAt: number;
   serverNow: number;
   hostConnected: boolean;
+  hostReconnecting?: boolean;
+  runtimeAt?: number;
   controllerOwned: boolean;
   players: Player[];
   categories: string[];
@@ -175,4 +178,18 @@ export interface SessionView {
   nextSelectorId?: string;
   canUndo: boolean;
   undoCount?: number;
+}
+
+export interface HeartbeatReceipt {
+  kind: 'heartbeat';
+  needsRefresh?: boolean;
+  serverNow: number;
+  host: boolean;
+}
+export interface AnswerReceipt {
+  kind: 'answer';
+  serverNow: number;
+  text: string;
+  submittedAt: number;
+  revision: number;
 }

@@ -27,14 +27,14 @@ A responsive, self-hostable Jeopardy game for **Next.js + Vercel + Supabase**. T
 ## 1. Configure Supabase
 
 1. Create a Supabase project. Choose a region near the players; use the closest Vercel function region as well.
-2. Open **SQL Editor**, paste the contents of [`supabase/migrations/001_initial.sql`](supabase/migrations/001_initial.sql), and run it **once**, then apply [`002_question_json.sql`](supabase/migrations/002_question_json.sql) and [`003_saved_tiebreakers.sql`](supabase/migrations/003_saved_tiebreakers.sql). For an existing installation, run only unapplied migrations in order. Alternatively, use the Supabase CLI migration workflow.
+2. Open **SQL Editor**, paste the contents of [`supabase/migrations/001_initial.sql`](supabase/migrations/001_initial.sql), and run it **once**, then apply [`002_question_json.sql`](supabase/migrations/002_question_json.sql), [`003_saved_tiebreakers.sql`](supabase/migrations/003_saved_tiebreakers.sql), and [`004_scalable_runtime.sql`](supabase/migrations/004_scalable_runtime.sql). For an existing installation, run only unapplied migrations in order. Alternatively, use the Supabase CLI migration workflow.
 3. Under **Authentication → Providers**, enable **Email** and **Anonymous Sign-Ins**. Anonymous users are players; hosts use email/password accounts.
 4. Under **Authentication → URL Configuration**, set the Site URL to your Vercel production URL. Add your local URL (`http://localhost:3000`) and any preview URLs you intentionally use to the redirect allowlist.
 5. Under **Realtime Settings**, disable **Allow public access**, so channels must be private. The migration installs the channel authorization policy. No Postgres Changes publication is required.
 6. Keep email confirmation enabled for deployed host accounts. Configure email delivery as needed. The app tells new hosts to confirm their email before signing in. For local development only, you can disable confirmation in your separate development project.
 7. Copy your **Project URL**, **anon public key**, and **service_role key**. Never place the service-role key in a `NEXT_PUBLIC_` variable.
 
-The application uses these tables: `games`, `sessions`, `session_members`, and `rate_limits`. Browsers cannot directly read private board/session JSON or execute privileged mutation functions.
+The application uses these tables: `games`, `sessions`, `session_members`, `rate_limits`, `session_presence`, `session_final_drafts`, and `session_final_receipts`. Browsers cannot directly read private board/session JSON or execute privileged mutation functions.
 
 ## 2. Run locally
 
@@ -82,11 +82,11 @@ Apply `supabase/migrations/002_question_json.sql` to an existing database before
 
 ## Resume behavior
 
-Closing the host window never ends a session. Every accepted action is persisted to PostgreSQL before success is reported. The host controller heartbeats every five seconds. After **15 seconds without a heartbeat**, the session is considered disconnected and paused at that boundary.
+Closing the host window never ends a session. Every accepted action is persisted to PostgreSQL before success is reported. The host controller heartbeats every five seconds. After **30 seconds without a heartbeat**, the session is considered disconnected and paused at that boundary.
 
 When the host returns, choose **Host Game → the board's In Progress session → Resume**, enter the session's host PIN, and select **Continue game**. The same session ID, join code, players, scores, current clue, pending respondent, wagers, answers, and remaining time are restored. The session PIN is a snapshot of the PIN at launch; changing the saved board's PIN does not change an existing session's PIN.
 
-If all browsers are closed, the database is reconciled on the next read: the effective pause instant is still the last host heartbeat plus 15 seconds. A timer expiring before that instant resolves normally. Time is not retroactively restored. Final response drafts already received remain saved; no new answers are accepted while paused.
+If all browsers are closed, the database is reconciled on the next read: the effective pause instant is still the last host heartbeat plus 30 seconds. A timer expiring before that instant resolves normally. Time is not retroactively restored. Final response drafts already received remain saved; no new answers are accepted while paused.
 
 Taking control in another tab pauses the game and invalidates the previous controller's commands. A finished or explicitly ended session remains viewable in history but cannot resume. In-progress sessions have no automatic deletion or gameplay expiry.
 
@@ -152,7 +152,7 @@ Engine tests use deterministic clocks. Database tests execute the actual migrati
 - Do not share the host console on a projector: use **Audience display**. It has no unrevealed answer payloads and does not heartbeat as the host.
 - Enable Supabase backups appropriate to your needs. Guest identity recovery depends on retaining that browser's auth storage; lost guest site data cannot automatically reclaim a name.
 - Heartbeat throttling when a host browser is suspended can pause the game. Returning and continuing is safe.
-- Monitor Supabase database/Realtime and Vercel usage. Full session state is read for authorized snapshots; the notification channel carries version numbers only. This intentionally prioritizes durable correctness and straightforward deployment over high-scale esports performance.
+- Monitor Supabase database/Realtime and Vercel usage. Full session state is read for authorized snapshots; the notification channel carries game versions or private-submission status-change signals, never response text. This intentionally prioritizes durable correctness and straightforward deployment over high-scale esports performance.
 - Rate-limit rows contain HMAC-hashed identifiers. You may periodically delete `rate_limits` rows whose `window_start` is older than one day. Never delete unfinished sessions as part of that maintenance.
 
 ## Returning as a player
@@ -225,4 +225,8 @@ A Daily Double belongs to the saved next-selection player. Only that player can 
 
 ## Fifteen-player capacity assessment
 
-The current build is not yet certified for reliable 15-player play. Concurrent buzzer correctness passes, but local real-handler/PostgreSQL simulations reproduce busy responses during simultaneous Final autosave and a host-disconnected pause under a degraded transport model. These simulations do not establish production capacity. See [measured results, limits and scaling priorities](docs/reports/15-player-capacity.md). Run `npm run test:stress` for the opt-in local experiments; no deployed service or production account is touched.
+The previous build failed the local 15-player Final autosave experiments. Migration 004 and the updated client/server isolate presence and drafts, coalesce snapshots and strengthen the host lease. See the [original baseline](docs/reports/15-player-capacity.md) and [updated implementation and validation](docs/scaling-runtime.md). Local tests do not establish production capacity; perform the documented staging and venue-network verification. Run `npm run test:stress` for the opt-in local experiments; no deployed service or production account is touched.
+
+## Deploy the scalable runtime safely
+
+This release requires [migration 004](supabase/migrations/004_scalable_runtime.sql). Use the complete [rollout guide](docs/scaling-runtime.md): apply migrations 001–004 in order in the target Supabase project **before merging/deploying the matching app**, wait for the schema cache refresh, then refresh every host/player/audience tab. Existing games, sessions, scores, accepted Final responses and undo checkpoints remain stored. No new environment variable is required. Keep the new runtime tables private; do not enable public access or Postgres Changes publication on them.
