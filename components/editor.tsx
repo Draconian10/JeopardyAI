@@ -203,7 +203,7 @@ function EditorInner({ id }: { id: string }) {
             <div className="button-row">
               <button
                 type="button"
-                className="text-button"
+                className="button secondary"
                 disabled={importBusy}
                 onClick={() => {
                   setJsonText(QUESTION_JSON_EXAMPLE);
@@ -214,7 +214,7 @@ function EditorInner({ id }: { id: string }) {
               </button>
               <button
                 type="button"
-                className="text-button"
+                className="button secondary"
                 disabled={importBusy}
                 onClick={() => {
                   setJsonText(JSON.stringify(boardToQuestionJson(board), null, 2));
