@@ -179,6 +179,14 @@ export async function runLiveGame({
   async function race(list = actors) {
     await Promise.all(list.map((actor) => expect(actor.page.locator('.buzzer')).toBeEnabled()));
     const windowId = (await view()).windowId;
+    await Promise.all(
+      list.map((actor) =>
+        expect(actor.page.locator('[data-buzzer-window]')).toHaveAttribute(
+          'data-buzzer-window',
+          windowId,
+        ),
+      ),
+    );
     const target = Date.now() + 1000;
     await Promise.all(
       list.map((actor) =>
@@ -224,7 +232,12 @@ export async function runLiveGame({
     );
     return s.respondent;
   }
-  async function waitJudgment(actor, correct = true, daily = false) {
+  async function waitJudgment(actor, correct = true) {
+    const s = await view();
+    await expect(actor.page.locator('[data-buzzer-window]')).toHaveAttribute(
+      'data-buzzer-window',
+      s.windowId,
+    );
     await actor.page.locator('.buzzer').click();
     await phase(host, 'answering');
     await click(host, correct ? 'Correct' : 'Incorrect');
@@ -494,6 +507,10 @@ export async function runLiveGame({
       while (s.phase === 'tieQuestion') {
         const actor = actors.find((a) => !s.attempted.includes(a.id));
         await phase(actor, 'tieQuestion');
+        await expect(actor.page.locator('[data-buzzer-window]')).toHaveAttribute(
+          'data-buzzer-window',
+          s.windowId,
+        );
         await actor.page.locator('.buzzer').click();
         await phase(host, 'tieAnswer');
         await click(host, 'Incorrect');

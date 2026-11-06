@@ -274,6 +274,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
   return (
     <div
       data-game-phase={s.phase}
+      data-buzzer-window={s.windowId ?? ''}
       data-session-transport={health.transport}
       className={`container session-container ${player ? 'player-container' : ''} ${audience ? 'audience-container' : ''}`}
     >
