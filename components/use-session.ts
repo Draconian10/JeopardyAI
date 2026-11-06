@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, ApiError, configured, supabase } from '@/lib/client';
 import type { AnswerReceipt, HeartbeatReceipt, SessionView } from '@/lib/game/types';
 import { takeLaunchController } from '@/lib/launch-controller';
+import { initialHealth, observeRequest } from '@/lib/connection-health';
 import type { Command } from '@/lib/game/schema';
 const stageKey = (s?: SessionView) =>
   JSON.stringify([s?.phase, s?.question?.id, s?.tiebreaker?.round?.id, s?.windowId]);
@@ -17,6 +18,15 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
   const requestSequence = useRef(0);
   const latestConnectionResult = useRef(0);
   const [connected, setConnected] = useState(false);
+  const [health, setHealth] = useState(initialHealth);
+  const observe = useCallback(
+    (kind: 'snapshot' | 'command', started: number, reachable: boolean) => {
+      setHealth((current) =>
+        observeRequest(current, kind, performance.now() - started, reachable, Date.now()),
+      );
+    },
+    [],
+  );
   const [busy, setBusy] = useState(false);
   const offset = useRef(0);
   const refreshInFlight = useRef<Promise<void> | undefined>(undefined);
@@ -50,6 +60,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
             next.finalEntries[id] = entry;
         }
       }
+      setHealth((health) => ({ ...health, lastSnapshotAt: Date.now() }));
       latestSnapshotSequence.current = sequence;
       stateRef.current = next;
       offset.current = next.serverNow - Date.now();
@@ -70,6 +81,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
       do {
         refreshAgain.current = false;
         const sequence = ++requestSequence.current;
+        const started = performance.now();
         try {
           const next = await api<SessionView>(
             `sessions/${id}${role === 'audience' ? '?view=audience' : ''}`,
@@ -78,8 +90,10 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
             controller || undefined,
             12000,
           );
+          observe('command', started, true);
           accept(next, sequence);
         } catch (e) {
+          observe('snapshot', started, false);
           failSync(e, sequence);
         }
       } while (refreshAgain.current);
@@ -89,7 +103,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
     });
     refreshInFlight.current = pending;
     return pending;
-  }, [id, role, controller, accept, failSync]);
+  }, [id, role, controller, accept, failSync, observe]);
   useEffect(() => {
     if (role !== 'host') return;
     if (initialController.current?.id !== id) {
@@ -119,6 +133,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
       return;
     const client = supabase();
     let alive = true;
+    setHealth((current) => ({ ...current, transport: 'polling' }));
     const channel = client
       .channel(`session:${id}`, { config: { private: true } })
       .on('broadcast', { event: 'changed' }, ({ payload }) => {
@@ -133,17 +148,26 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
       .subscribe((status) => {
         if (!alive) return;
         realtimeHealthy.current = status === 'SUBSCRIBED';
+        setHealth((current) => ({
+          ...current,
+          transport: realtimeHealthy.current ? 'realtime' : 'polling',
+        }));
         if (alive && realtimeHealthy.current) void refresh();
       });
 
     return () => {
       alive = false;
       realtimeHealthy.current = false;
+      setHealth((current) => ({ ...current, transport: 'connecting' }));
       void client.removeChannel(channel);
     };
   }, [id, userId, refresh, role, !!state?.controllerOwned, !!state]);
   useEffect(() => {
     if (!userId) return;
+    setHealth((current) => ({
+      ...current,
+      transport: realtimeHealthy.current ? 'realtime' : 'polling',
+    }));
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
     const poll = () => {
@@ -186,6 +210,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
       }
       const sequence = ++requestSequence.current;
       const actionStage = stageKey(stateRef.current);
+      const started = performance.now();
       try {
         const next = await api<SessionView | HeartbeatReceipt | AnswerReceipt>(
           `sessions/${id}/command`,
@@ -199,6 +224,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
           controller || undefined,
           command.type === 'heartbeat' ? 8000 : 15000,
         );
+        observe('command', started, true);
         if ('kind' in next) {
           offset.current = next.serverNow - Date.now();
           if (next.kind === 'heartbeat' && next.needsRefresh) void refresh();
@@ -233,6 +259,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
       } catch (e) {
         const gameplayError =
           e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 401;
+        observe('command', started, gameplayError);
         if (gameplayError) {
           if (!quiet && actionStage === stageKey(stateRef.current)) setError(e.message);
         } else failSync(e, sequence);
@@ -243,7 +270,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
         if (!quiet) setBusy(false);
       }
     },
-    [id, controller, userId, accept, refresh, failSync],
+    [id, controller, userId, accept, refresh, failSync, observe],
   );
   useEffect(() => {
     if (!state || role === 'audience' || !userId) return;
@@ -297,6 +324,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
     error: error || syncError,
     setError,
     connected,
+    health,
     busy,
     send,
     refresh,

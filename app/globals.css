@@ -2882,3 +2882,89 @@ input[type='checkbox'] {
   max-width: 100%;
   white-space: normal;
 }
+
+.connection-health {
+  margin: 0 0 22px;
+  padding: 18px 22px;
+}
+.connection-health > summary {
+  cursor: pointer;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.health-summary {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 400;
+  margin-left: 12px;
+}
+.health-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 20px 0;
+}
+.health-metrics small,
+.health-metrics strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.health-metrics small {
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+.health-player-list {
+  margin: 16px 0;
+}
+.health-player-list > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding: 10px 0;
+  font-size: 13px;
+}
+.health-player-list b,
+.health-player-list span {
+  overflow-wrap: anywhere;
+}
+.draft-recovery {
+  margin-bottom: 22px;
+  border-color: var(--gold);
+}
+.draft-recovery h2 {
+  font-size: 20px;
+  margin-bottom: 10px;
+}
+.draft-recovery select {
+  margin-bottom: 14px;
+  min-width: 0;
+  max-width: 100%;
+}
+.draft-recovery p {
+  overflow-wrap: anywhere;
+}
+.local-draft-status {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 12px 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .health-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .health-summary {
+    display: block;
+    margin: 8px 0 0;
+  }
+  .health-player-list > div {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .health-player-list > div > span:last-child {
+    grid-column: 2;
+  }
+  .draft-recovery .button-row > button {
+    flex: 1 1 180px;
+  }
+}

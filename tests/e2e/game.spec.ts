@@ -268,7 +268,9 @@ test('editor supports selecting a tile and saving a structured board', async ({ 
     .getByRole('textbox', { name: 'Clue', exact: true })
     .fill('A revised question');
   await page.getByRole('button', { name: 'Save board' }).click();
-  await expect(page.getByRole('status')).toContainText('All changes saved');
+  await expect(page.getByRole('status', { name: 'Server save status' })).toContainText(
+    'All changes saved',
+  );
 });
 test('Final Jeopardy draft is saved and kept on the server', async ({ page }) => {
   const s = fixture();
@@ -1876,4 +1878,188 @@ test('brief host uncertainty shows saved-progress recovery and clears on a fresh
   ).toHaveCount(0);
   await expect(page.locator('.personal-score strong')).toHaveText('$0');
   expect(current().version).toBe(0);
+});
+
+test('new board recovery restores edits and raw JSON after reload without storing the host PIN', async ({
+  page,
+}) => {
+  const s = fixture();
+  await mock(page, s);
+  await page.goto('/host/edit/new');
+  await page.getByLabel('Board title', { exact: true }).fill('Recovered game');
+  await page.getByLabel('Host PIN', { exact: true }).fill('654321');
+  await page.getByRole('button', { name: 'Import JSON', exact: true }).click();
+  await page.getByLabel('Board JSON', { exact: true }).fill('{unfinished JSON');
+  const raw = await page.evaluate(() =>
+    Object.entries(localStorage)
+      .filter(([k]) => k.startsWith('jeopardy:board-draft:'))
+      .map(([, v]) => v)
+      .join(''),
+  );
+  expect(raw).not.toContain('654321');
+  await page.reload();
+  await expect(page.getByRole('region', { name: 'Unsaved board recovery' })).toBeVisible();
+  await page.getByRole('button', { name: 'Restore draft', exact: true }).click();
+  await expect(page.getByLabel('Board title', { exact: true })).toHaveValue('Recovered game');
+  await expect(page.getByLabel('Board JSON', { exact: true })).toHaveValue('{unfinished JSON');
+  await expect(page.getByLabel('Host PIN', { exact: true })).toHaveValue('');
+});
+
+test('existing recovery requires explicit Save and retains server optimistic concurrency', async ({
+  page,
+}) => {
+  const s = fixture();
+  await mock(page, s);
+  await page.addInitScript(
+    ({ owner, id, board }) => {
+      localStorage.setItem(
+        `jeopardy:board-draft:v1:${owner}:${id}:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`,
+        JSON.stringify({
+          schema: 1,
+          ownerId: owner,
+          boardId: id,
+          recordId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          baseVersion: 9,
+          updatedAt: Date.now(),
+          board: { ...board, title: 'Recovered older edit' },
+          jsonText: '',
+          jsonDirty: false,
+          importOpen: false,
+        }),
+      );
+    },
+    { owner: HOST, id: s.gameId, board: s.board },
+  );
+  let saves = 0;
+  page.on('request', (r) => {
+    if (r.method() === 'PUT' && r.url().endsWith(`/api/games/${s.gameId}`)) saves++;
+  });
+  await page.goto(`/host/edit/${s.gameId}`);
+  await expect(
+    page.getByText('The server board has changed since this copy.', { exact: false }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Restore draft', exact: true }).click();
+  await page.waitForTimeout(2300);
+  expect(saves).toBe(0);
+  await expect(page.getByLabel('Board title', { exact: true })).toHaveValue('Recovered older edit');
+  const saved = page.waitForRequest(
+    (r) => r.method() === 'PUT' && r.url().endsWith(`/api/games/${s.gameId}`),
+  );
+  await page.getByRole('button', { name: 'Save board', exact: true }).click();
+  expect((await saved).postDataJSON().version).toBe(0);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => Object.keys(localStorage).filter((k) => k.startsWith('jeopardy:board-draft:')).length,
+      ),
+    )
+    .toBe(0);
+});
+
+test('host health shows fallback and recorded contact while audience and players never see the panel', async ({
+  page,
+  browser,
+}) => {
+  const s = fixture();
+  s.players[0].lastSeen = Date.now() - 60000;
+  await mock(page, s);
+  await page.goto(`/host/session/${s.id}`);
+  const health = page.locator('.connection-health');
+  await expect(health).toContainText('Fallback polling');
+  await health.locator('summary').click();
+  await expect(health.getByText('No recent contact', { exact: true })).toBeVisible();
+  await expect(health.getByText('Recent request round trip', { exact: true })).toBeVisible();
+  const viewport = page.viewportSize()!;
+  const box = await health.boundingBox();
+  expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width + 1);
+  const context = await browser.newContext();
+  const player = await context.newPage();
+  await mock(player, s, PLAYER);
+  await player.goto(`/play/${s.id}`);
+  await expect(player.locator('.connection-health')).toHaveCount(0);
+  await context.close();
+  await page.goto(`/display/${s.id}`);
+  await expect(page.locator('.connection-health')).toHaveCount(0);
+});
+
+test('host health distinguishes a subscribed channel from fallback polling', async ({ page }) => {
+  const s = fixture();
+  await mock(page, s);
+  await page.addInitScript(
+    ({ id, control }) => sessionStorage.setItem(`jeopardy:launch:${id}`, control),
+    { id: s.id, control: CONTROL },
+  );
+  let live = true;
+  let closeSocket: (() => void) | undefined;
+  await page.routeWebSocket(/example\.supabase\.co/, (socket) => {
+    if (!live) {
+      socket.close();
+      return;
+    }
+    closeSocket = () => socket.close();
+    socket.onMessage((raw) => {
+      const value = JSON.parse(String(raw));
+      if (Array.isArray(value)) {
+        const [join, ref, topic, event] = value;
+        if (event === 'phx_join' || event === 'heartbeat')
+          socket.send(
+            JSON.stringify([
+              join,
+              ref,
+              topic,
+              'phx_reply',
+              { status: 'ok', response: { postgres_changes: [] } },
+            ]),
+          );
+      } else if (value.event === 'phx_join' || value.event === 'heartbeat')
+        socket.send(
+          JSON.stringify({
+            topic: value.topic,
+            event: 'phx_reply',
+            payload: { status: 'ok', response: { postgres_changes: [] } },
+            ref: value.ref,
+            join_ref: value.join_ref,
+          }),
+        );
+    });
+  });
+  await page.goto(`/host/session/${s.id}`);
+  const panel = page.locator('.connection-health');
+  await expect(panel).toContainText('Realtime subscribed');
+  live = false;
+  closeSocket?.();
+  await expect(panel).toContainText('Fallback polling', { timeout: 12000 });
+});
+
+test('unapplied JSON recovery follows a newly saved board instead of staying under New', async ({
+  page,
+}) => {
+  const s = fixture();
+  await mock(page, s);
+  let posted = s.board;
+  await page.route('**/api/games', (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    posted = route.request().postDataJSON().board;
+    return route.fulfill({ status: 201, json: { id: s.gameId } });
+  });
+  await page.route(`**/api/games/${s.gameId}`, (route) =>
+    route.request().method() === 'GET'
+      ? route.fulfill({ json: { id: s.gameId, board: posted, version: 0 } })
+      : route.fallback(),
+  );
+  await page.goto('/host/edit/new');
+  await page.getByLabel('Board title', { exact: true }).fill('New board with pending JSON');
+  await page.getByLabel('Host PIN', { exact: true }).fill('654321');
+  await page.getByRole('button', { name: 'Import JSON', exact: true }).click();
+  await page.getByLabel('Board JSON', { exact: true }).fill('{pending JSON');
+  await page.getByRole('button', { name: 'Save board', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/host/edit/${s.gameId}$`));
+  await expect(page.getByRole('region', { name: 'Unsaved board recovery' })).toBeVisible();
+  const keys = await page.evaluate(() =>
+    Object.keys(localStorage).filter((k) => k.startsWith('jeopardy:board-draft:')),
+  );
+  expect(keys.every((k) => k.includes(s.gameId))).toBe(true);
+  await page.getByRole('button', { name: 'Restore draft', exact: true }).click();
+  await expect(page.getByLabel('Board JSON', { exact: true })).toHaveValue('{pending JSON');
+  await expect(page.getByLabel(/Host PIN/)).toHaveValue('');
 });
