@@ -70,3 +70,17 @@ STRESS_SECONDS=30 STRESS_OUTPUT_DIR=test-results/scaled-stress npm run test:stre
 ```
 
 The stress suite uses local synthetic accounts and never calls a deployed project. For staging, use fifteen retained test guest identities plus a host and audience view. Exercise simultaneous buzzes, Daily Double, Final autosave and review, host close/reopen, pause/resume, removal and results download. Record host lease renewal latency, request failures, query/lock/CPU/IO metrics and Realtime event rates. Test the venue Wi-Fi and a separate network. Scale provider compute/quotas based on those measurements after reducing unnecessary work.
+
+## Continuous fifteen-player game
+
+A separate continuous API/SQL integration run completed on November 6, 2026. It starts with an empty lobby and exercises the entire game instead of seeding independent phases. The [recorded result](reports/complete-15-player-game.json) covers fifteen joins, practice arbitration, all thirty starter-board clues, multiple judgment undos, selector retention, player-owned Daily Double wagers, host pause/takeover/resume, all Final wagers, a full thirty-second response window with concurrent presence/polling, all fifteen Final judgments, a fifteen-way tie, a clue where all fifteen miss, a second clue with a correct winner, consistent player result views and CSV export.
+
+All fifteen latest acknowledged Final responses were retained after 810 draft saves. The run finished in about 50 seconds by issuing host actions automatically between clues; it is not a full-length game-night soak or a latency benchmark. Expected losing buzzes and rejection of the old host controller are asserted separately. The run recorded no unexpected command, heartbeat or snapshot errors. It uses the actual API handlers and all four SQL migrations against PGlite, with emulated Auth identities and Realtime transport. These are independent client identities, not fifteen real browsers or devices. No deployed database or private account is accessed.
+
+Run only this scenario on one computer, after `npm ci`:
+
+```bash
+STRESS_OUTPUT_DIR=test-results/full-game npm run test:stress -- -t "complete 15-player game"
+```
+
+No Supabase credentials or fifteen physical devices are required for this local scenario. A deployed-cloud test with independent browser sessions, real Auth/Realtime connections and representative network latency remains a separate acceptance check. The earlier live connection and practice-buzzer observations do not certify live Final submission, browser delivery or long-running reliability.

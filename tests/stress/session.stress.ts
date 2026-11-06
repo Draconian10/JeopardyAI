@@ -3,9 +3,10 @@ import { beforeAll, afterAll, it, expect, vi } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { NextRequest } from 'next/server';
-import { createSession, HOST_GRACE } from '@/lib/game/engine';
+import { createSession, finalReviewPlayer, HOST_GRACE, viewSession } from '@/lib/game/engine';
+import { hashPin } from '@/lib/server/db';
 import { starterBoard } from '@/lib/game/starter';
-import type { Session, SessionView } from '@/lib/game/types';
+import type { AnswerReceipt, Session, SessionView } from '@/lib/game/types';
 import type { Command } from '@/lib/game/schema';
 const transport = vi.hoisted(() => ({ client: undefined as unknown }));
 vi.mock('@supabase/supabase-js', () => ({ createClient: () => transport.client }));
@@ -794,5 +795,258 @@ it('three independent 15-player rooms stay healthy through a full Final and one-
     pausedRooms: states.filter((s) => s.paused).length,
     broadcastCallbacks: broadcasts,
     database: { ...metrics },
+  });
+});
+
+it('complete 15-player game through all thirty clues, Final and sudden death', async () => {
+  const initial = await seed(15, 'lobby');
+  const seats = users.slice(1);
+  const checks: string[] = [];
+  const samples: { kind: string; status: number; error?: string }[] = [];
+  latency = 10;
+  authLatency = 5;
+  slots = 16;
+  await pg.query('update public.sessions set pin_hash=$2 where id=$1', [
+    session,
+    hashPin('123456'),
+  ]);
+  let lastRenewal = Date.now();
+  const command = async (cmd: Command, user = host) => {
+    if (
+      user === host &&
+      cmd.type !== 'heartbeat' &&
+      cmd.type !== 'claim' &&
+      Date.now() - lastRenewal >= 5000
+    ) {
+      const renewal = await route(host, { type: 'heartbeat' });
+      expect(renewal.status).toBe(200);
+      lastRenewal = Date.now();
+    }
+    const current = await state();
+    const r = await route(user, cmd, current.actionVersion);
+    samples.push({ kind: cmd.type, status: r.status, error: r.body.error });
+    expect(r.body.error, `${cmd.type}: ${r.body.error}`).toBeUndefined();
+    expect(r.status).toBe(200);
+    return r.body as SessionView;
+  };
+  const race = async () => {
+    const s = await state();
+    const eligible = seats.filter((id) => !s.attempted.includes(id));
+    const results = await Promise.all(
+      eligible.map((id) => route(id, { type: 'buzz', windowId: s.windowId! })),
+    );
+    expect(results.filter((r) => r.status === 200)).toHaveLength(1);
+    expect(results.filter((r) => r.status !== 200).every((r) => r.status === 409)).toBe(true);
+    const saved = await state();
+    expect(eligible).toContain(saved.respondent);
+    return saved.respondent!;
+  };
+  const joins = await Promise.all(seats.map((id) => route(id, undefined, 0, true)));
+  expect(joins.every((r) => r.status === 200)).toBe(true);
+  expect((await state()).players).toHaveLength(15);
+  checks.push('15 authenticated identities joined through the API');
+  await command({ type: 'practiceStart' });
+  await race();
+  expect((await state()).players.every((p) => p.score === 0)).toBe(true);
+  await command({ type: 'practiceStop' });
+  await command({ type: 'start' });
+  expect(seats).toContain((await state()).nextSelectorId);
+  checks.push('practice arbitration, unchanged scores and first selector');
+  let regular = 0;
+  for (const question of initial.board.questions) {
+    const selected = await command({ type: 'select', questionId: question.id });
+    if (question.dailyDouble) {
+      expect(selected.daily?.playerId).toBe(selected.nextSelectorId);
+      const playerId = selected.daily!.playerId;
+      const score = selected.players.find((p) => p.id === playerId)!.score;
+      const amount = Math.min(100, Math.abs(score));
+      await command({ type: 'dailyWager', amount }, playerId);
+      const audience = await route(host, undefined, 0, false, true);
+      expect(audience.body.daily?.amount).toBe(amount);
+      expect(audience.body.daily?.submitted).toBe(true);
+      await command({ type: 'openDaily' });
+      await command({ type: 'dailyJudge', correct: false });
+      await command({ type: 'undo' });
+      await command({ type: 'dailyJudge', correct: true });
+      checks.push('selector-owned Daily Double, player wager, host lock and undo');
+    } else {
+      if (regular === 0) {
+        await command({ type: 'buzz', windowId: selected.windowId! }, seats[0]);
+        await command({ type: 'judge', correct: false });
+        await command({ type: 'buzz', windowId: (await state()).windowId! }, seats[1]);
+        await command({ type: 'judge', correct: false });
+        await command({ type: 'undo' });
+        await command({ type: 'undo' });
+        expect((await state()).players.slice(0, 2).map((p) => p.score)).toEqual([0, 0]);
+        await command({ type: 'judge', correct: true });
+        const before = await state();
+        await command({ type: 'pause' });
+        const oldController = controller;
+        controller = crypto.randomUUID();
+        await command({ type: 'claim', pin: '123456', controller });
+        const newController = controller;
+        controller = oldController;
+        expect((await route(host, { type: 'heartbeat' })).status).toBe(409);
+        controller = newController;
+        await command({ type: 'continue' });
+        expect((await state()).players.map((p) => p.score)).toEqual(
+          before.players.map((p) => p.score),
+        );
+        expect((await state()).joinCode).toBe(before.joinCode);
+        checks.push('two judgment undos, pause/takeover/resume and rejection of old controller');
+      } else if (regular === 1) {
+        const selector = selected.nextSelectorId;
+        await command({ type: 'reveal' });
+        expect((await state()).nextSelectorId).toBe(selector);
+      } else {
+        await command(
+          { type: 'buzz', windowId: selected.windowId! },
+          seats[regular % seats.length],
+        );
+        const hidden = await route(host, undefined, 0, false, true);
+        expect(hidden.body.question?.prompt).toBe('');
+        expect(hidden.body.question?.answer).toBeUndefined();
+        await command({ type: 'judge', correct: true });
+      }
+      regular++;
+    }
+    const views = await Promise.all(seats.map((id) => route(id)));
+    expect(
+      views.every((r) => r.status === 200 && r.body.phase === 'reveal' && !r.body.paused),
+    ).toBe(true);
+    const scoreStrings = views.map((r) =>
+      JSON.stringify(r.body.players.map((p: { id: string; score: number }) => [p.id, p.score])),
+    );
+    expect(new Set(scoreStrings).size).toBe(1);
+    await command({ type: 'next' });
+  }
+  const final = await state();
+  expect(final.phase).toBe('finalWager');
+  expect(final.used).toHaveLength(30);
+  expect(final.players.every((p) => p.score > 0)).toBe(true);
+  checks.push(
+    'all 30 board clues completed, with 15 consistent player projections after every clue',
+  );
+  const wagers = await Promise.all(
+    final.players.map((p) => route(p.id, { type: 'wager', amount: Math.abs(p.score) })),
+  );
+  expect(wagers.every((r) => r.status === 200)).toBe(true);
+  await command({ type: 'openFinal' });
+  const answerState = await state();
+  const acknowledged = new Map<string, { text: string; revision: number }>();
+  const pending = new Set<Promise<void>>();
+  const launch = (user: string, cmd?: Command) => {
+    const task = route(user, cmd)
+      .then((r) => {
+        samples.push({ kind: cmd?.type ?? 'poll', status: r.status, error: r.body.error });
+        expect(r.status).toBe(200);
+        if (!cmd) expect(r.body.paused).toBe(false);
+      })
+      .finally(() => pending.delete(task));
+    pending.add(task);
+  };
+  const heartbeatTimer = setInterval(
+    () => users.forEach((id) => launch(id, { type: 'heartbeat' })),
+    5000,
+  );
+  const pollTimer = setInterval(() => {
+    users.forEach((id) => launch(id));
+  }, 10000);
+  try {
+    await Promise.all(
+      seats.map(async (id, index) => {
+        let revision = 0;
+        while (Date.now() < answerState.deadline! - 750) {
+          const text = `Full-game player ${index + 1} revision ${revision + 1}`;
+          const r = await route(id, { type: 'answer', text, revision: revision + 1 });
+          samples.push({ kind: 'answer', status: r.status, error: r.body.error });
+          expect(r.status).toBe(200);
+          const receipt = r.body as unknown as AnswerReceipt;
+          expect(receipt.kind).toBe('answer');
+          revision = receipt.revision;
+          acknowledged.set(id, { text: receipt.text, revision });
+          await sleep(500);
+        }
+      }),
+    );
+    await sleep(Math.max(0, answerState.deadline! - Date.now() + 50));
+    const frozen = await route(host);
+    expect(frozen.status).toBe(200);
+    expect(frozen.body.phase).toBe('finalReveal');
+    expect(acknowledged.size).toBe(15);
+    for (const [id, accepted] of acknowledged)
+      expect(frozen.body.finalEntries[id]).toMatchObject(accepted);
+    const privateView = await route(seats[0]);
+    expect(privateView.body.finalEntries[seats[1]].text).toBeUndefined();
+  } finally {
+    clearInterval(heartbeatTimer);
+    clearInterval(pollTimer);
+    await Promise.all([...pending]);
+  }
+  checks.push(
+    'full 30-second Final: 15 players repeatedly autosaved, with concurrent presence and polling; all latest acknowledgements retained',
+  );
+  await command({ type: 'reviewFinal' });
+  let reviewId: string | undefined;
+  while ((reviewId = finalReviewPlayer(await state())))
+    await command({ type: 'finalJudge', playerId: reviewId, correct: false });
+  await command({ type: 'finish' });
+  expect((await state()).phase).toBe('tieSetup');
+  expect((await state()).tiebreaker?.playerIds).toHaveLength(15);
+  expect((await state()).players.every((p) => p.score === 0)).toBe(true);
+  const tieClue = {
+    type: 'tieClue' as const,
+    category: 'Test category',
+    prompt: 'Test clue',
+    answer: 'Test response',
+  };
+  await command(tieClue);
+  for (let i = 0; i < 15; i++) {
+    await race();
+    await command({ type: 'tieJudge', correct: false });
+    expect((await state()).tiebreaker?.winnerId).toBeUndefined();
+  }
+  expect((await state()).phase).toBe('tieReveal');
+  await command({ type: 'tieNext' });
+  await command(tieClue);
+  expect((await state()).tiebreaker?.playerIds).toHaveLength(15);
+  const winner = await race();
+  await command({ type: 'tieJudge', correct: true });
+  const completed = await state();
+  expect(completed.phase).toBe('finished');
+  expect(completed.tiebreaker?.winnerId).toBe(winner);
+  expect(completed.players.every((p) => p.score === 0)).toBe(true);
+  const completedViews = await Promise.all(seats.map((id) => route(id)));
+  expect(
+    completedViews.every(
+      (r) =>
+        r.status === 200 && r.body.tiebreaker?.winnerId === winner && r.body.phase === 'finished',
+    ),
+  ).toBe(true);
+  const exportResult = await GET(
+    new NextRequest(`http://stress.local/api/sessions/${session}/results`, {
+      headers: { authorization: `Bearer ${host}` },
+    }),
+    { params: Promise.resolve({ path: ['sessions', session, 'results'] }) },
+  );
+  expect(exportResult.status).toBe(200);
+  expect(await exportResult.text()).toContain('Won sudden-death tiebreaker');
+  expect(viewSession(completed, host, Date.now(), controller, true).tiebreaker?.round?.answer).toBe(
+    'Test response',
+  );
+  checks.push(
+    'all 15 Final judgments, 15-way tie, fifteen misses without a default winner, second clue, unique winner and CSV',
+  );
+  record({
+    name: 'Complete 15-player game: API/SQL integration',
+    players: 15,
+    cluesCompleted: 30,
+    checks,
+    finalResponsesRetained: acknowledged.size,
+    phase: completed.phase,
+    unexpectedRecordedErrors: samples.filter((s) => s.status !== 200).length,
+    database: { ...metrics },
+    scope:
+      'Local real API handlers and all migrations; Supabase Auth/Realtime transport emulated. Not a fifteen-browser or deployed-cloud test.',
   });
 });
