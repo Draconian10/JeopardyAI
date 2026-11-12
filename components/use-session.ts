@@ -83,7 +83,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience', dis
         const sequence = ++requestSequence.current;
         const started = performance.now();
         try {
-          const next: SessionView = role === 'audience'
+          const next: SessionView = role === 'audience' && displayToken
             ? await (async () => {
                 const response = await fetch(
                   `/api/display/${id}?token=${encodeURIComponent(displayToken ?? '')}`,
@@ -96,7 +96,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience', dis
                 return (await response.json()) as SessionView;
               })()
             : await api<SessionView>(
-                `sessions/${id}`, 'GET', undefined, controller || undefined, 12000,
+                `sessions/${id}${role === 'audience' ? '?view=audience' : ''}`, 'GET', undefined, controller || undefined, 12000,
               );
           observe('command', started, true);
           accept(next, sequence);
@@ -120,8 +120,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience', dis
     setController(initialController.current.value);
   }, [role, id]);
   useEffect(() => {
-    if (role === 'audience') {
-      if (!displayToken) return;
+    if (role === 'audience' && displayToken) {
       setUserId('public-display');
       void refresh();
       return;
@@ -143,7 +142,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience', dis
     };
   }, [refresh, role, controller, displayToken]);
   useEffect(() => {
-    if (role === 'audience' || !userId || !stateRef.current || (role === 'host' && !stateRef.current.controllerOwned))
+    if ((role === 'audience' && displayToken) || !userId || !stateRef.current || (role === 'host' && !stateRef.current.controllerOwned))
       return;
     const client = supabase();
     let alive = true;
@@ -175,7 +174,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience', dis
       setHealth((current) => ({ ...current, transport: 'connecting' }));
       void client.removeChannel(channel);
     };
-  }, [id, userId, refresh, role, !!state?.controllerOwned, !!state]);
+  }, [id, userId, refresh, role, displayToken, !!state?.controllerOwned, !!state]);
   useEffect(() => {
     if (!userId) return;
     setHealth((current) => ({
@@ -190,7 +189,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience', dis
           await refresh();
           if (!stopped) poll();
         },
-        (role === 'audience' ? 2500 : realtimeHealthy.current ? 10000 : 3000) + Math.random() * 300,
+        (role === 'audience' && displayToken ? 2500 : realtimeHealthy.current ? 10000 : 3000) + Math.random() * 300,
       );
     };
     poll();
@@ -207,7 +206,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience', dis
       window.removeEventListener('focus', focus);
       document.removeEventListener('visibilitychange', focus);
     };
-  }, [userId, role, refresh]);
+  }, [userId, role, displayToken, refresh]);
   const send = useCallback(
     async (command: Command, quiet = false) => {
       const current = stateRef.current;
