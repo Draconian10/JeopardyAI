@@ -51,9 +51,7 @@ export default function GameSession({
   displayToken?: string;
 }) {
   if (role === 'host') return <HostAuth>{() => <SessionInner id={id} role={role} />}</HostAuth>;
-  if (role === 'audience' && !displayToken)
-    return <div className="panel narrow"><h1>Display link required.</h1><p>Ask the host to share a private audience display link.</p></div>;
-  if (role !== 'audience' && !configured()) return <SetupNotice />;
+  if (!configured()) return <SetupNotice />;
   return <SessionInner id={id} role={role} displayToken={displayToken} />;
 }
 function SessionInner({ id, role, displayToken }: { id: string; role: 'host' | 'player' | 'audience'; displayToken?: string }) {
