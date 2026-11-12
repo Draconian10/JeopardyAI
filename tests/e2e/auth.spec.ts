@@ -161,7 +161,7 @@ test('account recovery replaces the password and returns to login', async ({ pag
   });
   await page.goto('/host?reset=1');
   await expect(page.getByRole('heading', { name: 'Choose a new password.' })).toBeVisible();
-  await page.getByLabel('New password').fill('new-strong-password');
+  await page.getByLabel('New password', { exact: true }).fill('new-strong-password');
   await page.getByLabel('Confirm new password').fill('new-strong-password');
   await page.getByRole('button', { name: 'Update password' }).click();
   await expect(page.getByText('Password updated. Sign in to continue.')).toBeVisible();
