@@ -1094,7 +1094,7 @@ function SessionInner({
       )}
       {control && s.phase === 'lobby' && (
         <div className="lobby-end">
-          <DisplayAccess sessionId={id} />
+          <DisplayAccess sessionId={id} placement="lobby" />
           <button
             className="text-button negative"
             disabled={busy}

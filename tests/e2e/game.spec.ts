@@ -2063,3 +2063,124 @@ test('unapplied JSON recovery follows a newly saved board instead of staying und
   await expect(page.getByLabel('Board JSON', { exact: true })).toHaveValue('{pending JSON');
   await expect(page.getByLabel(/Host PIN/)).toHaveValue('');
 });
+
+test('audience controls retain their original layout and reuse the private display link', async ({
+  page,
+}) => {
+  const s = fixture();
+  await mock(page, s);
+  const tokens = ['A'.repeat(32), 'B'.repeat(32)];
+  let issued = 0;
+  await page.route(`**/api/sessions/${s.id}/display-link`, (route) =>
+    route.fulfill({
+      json: {
+        token: tokens[Math.min(issued++, tokens.length - 1)],
+        expiresAt: new Date(Date.now() + 12 * 60 * 60_000).toISOString(),
+      },
+    }),
+  );
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (text: string) => {
+          sessionStorage.setItem('test:copied-audience-link', text);
+        },
+      },
+    });
+  });
+  await claimHost(page, s);
+  const lobby = page.locator('.lobby-end');
+  const openLobby = lobby.getByRole('button', { name: 'Open audience display' });
+  await expect(openLobby).toBeVisible();
+  await expect(openLobby).toHaveClass(/text-button/);
+  await expect(lobby.getByRole('button', { name: 'Create audience display link' })).toHaveCount(0);
+  await expect(page.getByText(/Read-only link; works on a TV or projector/)).toHaveCount(0);
+
+  await lobby.getByLabel('Audience display options').click();
+  await lobby.getByRole('button', { name: 'Copy display link' }).click();
+  await expect
+    .poll(() => page.evaluate(() => sessionStorage.getItem('test:copied-audience-link')))
+    .toContain(`/display/${s.id}?token=${tokens[0]}`);
+  expect(issued).toBe(1);
+  const firstPopup = page.waitForEvent('popup');
+  await openLobby.click();
+  const firstDisplay = await firstPopup;
+  await firstDisplay.waitForURL((url) => url.searchParams.get('token') === tokens[0]);
+  expect(issued).toBe(1);
+  await firstDisplay.close();
+
+  // The lobby and main board mount different control instances: neither should rotate
+  // the existing display's token when a host switches between them.
+  await page.getByRole('button', { name: 'Start Jeopardy' }).click();
+  const sidebar = page.locator('.host-tools');
+  const openSidebar = sidebar.getByRole('button', { name: 'Audience display', exact: true });
+  await expect(openSidebar).toBeVisible();
+  await expect(openSidebar).toHaveClass(/button secondary full/);
+  const secondPopup = page.waitForEvent('popup');
+  await openSidebar.click();
+  const secondDisplay = await secondPopup;
+  await secondDisplay.waitForURL((url) => url.searchParams.get('token') === tokens[0]);
+  expect(issued).toBe(1);
+  await secondDisplay.close();
+
+  // Revoke only via the explicitly named action and verify the next open uses the new token.
+  await sidebar.getByLabel('Audience display options').click();
+  page.once('dialog', (dialog) => dialog.accept());
+  await sidebar.getByRole('button', { name: 'Replace link' }).click();
+  await expect.poll(() => issued).toBe(2);
+  const thirdPopup = page.waitForEvent('popup');
+  await openSidebar.click();
+  const thirdDisplay = await thirdPopup;
+  await thirdDisplay.waitForURL((url) => url.searchParams.get('token') === tokens[1]);
+  expect(issued).toBe(2);
+  await thirdDisplay.close();
+});
+
+test('player can generate a private recovery code from the live game screen', async ({ page }) => {
+  const s = fixture();
+  await mock(page, s, PLAYER);
+  const code = 'R'.repeat(24);
+  let generated = 0;
+  await page.route(`**/api/sessions/${s.id}/recovery-code`, (route) => {
+    generated++;
+    return route.fulfill({
+      json: { code, expiresAt: new Date(Date.now() + 12 * 60 * 60_000).toISOString() },
+    });
+  });
+  await page.goto(`/play/${s.id}`);
+  await page.getByText('Save a player recovery code').click();
+  await page.getByRole('button', { name: 'Generate recovery code' }).click();
+  await expect(page.getByLabel('Your recovery code')).toHaveText(code);
+  expect(generated).toBe(1);
+});
+
+test('host approval UI authorizes one recovery request and removes it from the queue', async ({
+  page,
+}) => {
+  const s = fixture();
+  await mock(page, s);
+  const requestId = crypto.randomUUID();
+  let approved = 0;
+  await page.route(`**/api/sessions/${s.id}/recovery-requests`, (route) =>
+    route.fulfill({
+      json: {
+        requests: approved
+          ? []
+          : [{ id: requestId, name: 'Alex', requestedAt: new Date().toISOString() }],
+      },
+    }),
+  );
+  await page.route(`**/api/sessions/${s.id}/recovery-approve`, (route) => {
+    expect(route.request().postDataJSON().requestId).toBe(requestId);
+    approved++;
+    return route.fulfill({ json: { approved: true, sessionId: s.id } });
+  });
+  await claimHost(page, s);
+  const requests = page.getByRole('region', { name: 'Player recovery requests' });
+  await expect(requests).toContainText('Alex');
+  page.once('dialog', (dialog) => dialog.accept());
+  await requests.getByRole('button', { name: 'Approve' }).click();
+  await expect.poll(() => approved).toBe(1);
+  await expect(requests).toHaveCount(0);
+});

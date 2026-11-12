@@ -299,8 +299,9 @@ export function HostAuth({ children }: { children: (user: User) => React.ReactNo
             {error}
           </p>
           {mode === 'login' && (
-            <>
+            <div className="auth-link-row">
               <button
+                type="button"
                 className="text-button"
                 onClick={() => {
                   setMode('signup');
@@ -310,6 +311,7 @@ export function HostAuth({ children }: { children: (user: User) => React.ReactNo
                 New here? Create an account
               </button>
               <button
+                type="button"
                 className="text-button"
                 onClick={() => {
                   setMode('forgot');
@@ -319,7 +321,7 @@ export function HostAuth({ children }: { children: (user: User) => React.ReactNo
               >
                 Forgot password?
               </button>
-            </>
+            </div>
           )}
           {mode === 'signup' && (
             <button
