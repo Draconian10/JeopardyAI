@@ -8,7 +8,6 @@ export function hostConfirmationRedirect(origin: string, publicSiteUrl?: string)
 /** A signed-in host cannot also occupy a player seat in their own game. */
 export function isHostPlayerConflict(error: unknown): boolean {
   return (
-    error instanceof Error &&
-    error.message === 'Use a separate device or browser profile to play.'
+    error instanceof Error && error.message === 'Use a separate device or browser profile to play.'
   );
 }
