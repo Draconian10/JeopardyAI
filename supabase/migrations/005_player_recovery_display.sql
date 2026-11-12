@@ -64,7 +64,7 @@ $$;
 -- Taking the session lock serializes it with host-approved seat transfers.
 create function public.rotate_player_recovery_code(
   p_session uuid,p_player uuid,p_hash text,p_expires timestamptz
-) returns boolean language plpgsql security definer set search_path='' as $
+) returns boolean language plpgsql security definer set search_path='' as $$
 declare s public.sessions%rowtype;
 begin
   select * into s from public.sessions where id=p_session for update;
@@ -82,7 +82,7 @@ begin
     where session_id=p_session and player_id=p_player and status='pending';
   return true;
 end;
-$;
+$$;
 
 -- Atomic: serializes against game commits and Final draft writes by locking the
 -- host lease and aggregate; no in-flight command can overwrite the transferred seat.
