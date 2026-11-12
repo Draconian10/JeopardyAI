@@ -220,7 +220,8 @@ describe('atomic player-seat recovery across fifteen players', () => {
     );
     expect(result.rows[0].ok).toBe(true);
     const requests = await pg.query<{ status: string }>(
-      'select status from public.session_player_recovery_requests where id=$1', [claim],
+      'select status from public.session_player_recovery_requests where id=$1',
+      [claim],
     );
     expect(requests.rows[0].status).toBe('rejected');
     const token = await pg.query<{ code_hash: string }>(
@@ -229,7 +230,8 @@ describe('atomic player-seat recovery across fifteen players', () => {
     );
     expect(token.rows[0].code_hash).toBe('b'.repeat(64));
     const res = await pg.query<{ r: { state: Session } }>(
-      'select public.read_session_runtime($1) r', [session.id],
+      'select public.read_session_runtime($1) r',
+      [session.id],
     );
     expect(res.rows[0].r.state.players).toHaveLength(15);
   });
