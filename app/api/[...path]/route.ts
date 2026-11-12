@@ -386,17 +386,15 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
           throw new GameError('Only a joined player can create a recovery code.', 403);
         const code = guestSecret(18);
         const expiresAt = new Date(Date.now() + 12 * 60 * 60_000).toISOString();
-        const { error } = await database
-          .from('session_player_recovery_codes')
-          .upsert(
-            {
-              session_id: id,
-              player_id: user.id,
-              code_hash: guestSecretHash('recovery', id, code),
-              expires_at: expiresAt,
-            },
-            { onConflict: 'session_id,player_id' },
-          );
+        const { error } = await database.from('session_player_recovery_codes').upsert(
+          {
+            session_id: id,
+            player_id: user.id,
+            code_hash: guestSecretHash('recovery', id, code),
+            expires_at: expiresAt,
+          },
+          { onConflict: 'session_id,player_id' },
+        );
         if (error) throw new GameError('Could not create a recovery code.', 503);
         return NextResponse.json({ code, expiresAt });
       }
@@ -408,17 +406,15 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
           throw new GameError('Only the host can share a display.', 403);
         const token = guestSecret(24);
         const expiresAt = new Date(Date.now() + 12 * 60 * 60_000).toISOString();
-        const { error } = await database
-          .from('session_display_links')
-          .upsert(
-            {
-              session_id: id,
-              token_hash: guestSecretHash('display', id, token),
-              expires_at: expiresAt,
-              created_at: new Date().toISOString(),
-            },
-            { onConflict: 'session_id' },
-          );
+        const { error } = await database.from('session_display_links').upsert(
+          {
+            session_id: id,
+            token_hash: guestSecretHash('display', id, token),
+            expires_at: expiresAt,
+            created_at: new Date().toISOString(),
+          },
+          { onConflict: 'session_id' },
+        );
         if (error) throw new GameError('Could not create the display link.', 503);
         return NextResponse.json({ token, expiresAt });
       }
