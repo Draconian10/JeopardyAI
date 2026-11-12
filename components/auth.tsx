@@ -85,7 +85,9 @@ export function HostAuth({ children }: { children: (user: User) => React.ReactNo
     return (
       <div className="panel narrow auth-panel">
         <h1>Unable to connect.</h1>
-        <p role="alert" className="error">{loadError}</p>
+        <p role="alert" className="error">
+          {loadError}
+        </p>
         <button className="button primary full" onClick={() => void checkUser()}>
           Retry sign-in
         </button>
@@ -118,7 +120,9 @@ export function HostAuth({ children }: { children: (user: User) => React.ReactNo
             then sign in to host.
           </p>
           <p className="muted">The link returns to Jeopardy. No Vercel account is needed.</p>
-          <p role="alert" className="error">{error}</p>
+          <p role="alert" className="error">
+            {error}
+          </p>
           <button
             className="button secondary full"
             disabled={busy}
@@ -182,7 +186,9 @@ export function HostAuth({ children }: { children: (user: User) => React.ReactNo
             </p>
           )}
           {resetDone && mode === 'login' && (
-            <p role="status" className="auth-notice">Password updated. Sign in to continue.</p>
+            <p role="status" className="auth-notice">
+              Password updated. Sign in to continue.
+            </p>
           )}
           <form
             onSubmit={async (e) => {
@@ -289,35 +295,62 @@ export function HostAuth({ children }: { children: (user: User) => React.ReactNo
                       : 'Update password'}
             </button>
           </form>
-          <p role="alert" className="error">{error}</p>
+          <p role="alert" className="error">
+            {error}
+          </p>
           {mode === 'login' && (
             <>
               <button
                 className="text-button"
-                onClick={() => { setMode('signup'); setError(''); }}
+                onClick={() => {
+                  setMode('signup');
+                  setError('');
+                }}
               >
                 New here? Create an account
               </button>
               <button
                 className="text-button"
-                onClick={() => { setMode('forgot'); setError(''); setResetSent(false); }}
+                onClick={() => {
+                  setMode('forgot');
+                  setError('');
+                  setResetSent(false);
+                }}
               >
                 Forgot password?
               </button>
             </>
           )}
           {mode === 'signup' && (
-            <button className="text-button" onClick={() => { setMode('login'); setError(''); }}>
+            <button
+              className="text-button"
+              onClick={() => {
+                setMode('login');
+                setError('');
+              }}
+            >
               Already have an account? Sign in
             </button>
           )}
           {mode === 'forgot' && (
-            <button className="text-button" onClick={() => { setMode('login'); setError(''); }}>
+            <button
+              className="text-button"
+              onClick={() => {
+                setMode('login');
+                setError('');
+              }}
+            >
               Back to sign in
             </button>
           )}
           {mode === 'reset' && !user && (
-            <button className="text-button" onClick={() => { setMode('forgot'); setError(''); }}>
+            <button
+              className="text-button"
+              onClick={() => {
+                setMode('forgot');
+                setError('');
+              }}
+            >
               Request a new reset link
             </button>
           )}
