@@ -18,6 +18,8 @@ jobs:
       - run: npm run format:check
       - run: npm run typecheck
       - run: npm test
+      - name: Full 15-player API/SQL game regression
+        run: npm run test:stress -- -t "complete 15-player game"
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
