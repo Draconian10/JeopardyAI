@@ -88,7 +88,7 @@ $$;
 -- Reads the aggregate with a shared lock, without touching the gameplay state.
 create function public.request_player_recovery(
   p_session uuid,p_claimant uuid,p_hash text
-) returns jsonb language plpgsql security definer set search_path='' as $
+) returns jsonb language plpgsql security definer set search_path='' as $$
 declare game_state jsonb; previous uuid; request_uuid uuid;
 begin
   select state into game_state from public.sessions
@@ -112,7 +112,7 @@ begin
   returning id into request_uuid;
   return jsonb_build_object('requestId',request_uuid);
 end;
-$;
+$$;
 
 -- Atomic: serializes against game commits and Final draft writes by locking the
 -- host lease and aggregate; no in-flight command can overwrite the transferred seat.
