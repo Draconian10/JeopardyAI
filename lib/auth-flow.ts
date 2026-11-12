@@ -11,3 +11,7 @@ export function isHostPlayerConflict(error: unknown): boolean {
     error instanceof Error && error.message === 'Use a separate device or browser profile to play.'
   );
 }
+
+export function hostPasswordRecoveryRedirect(origin: string, publicSiteUrl?: string): string {
+  return new URL('/host?reset=1', publicSiteUrl?.trim() || origin).toString();
+}
