@@ -24,6 +24,10 @@ export default function RecoveryCode({ sessionId }: { sessionId: string }) {
             Valid until {new Date(expiresAt).toLocaleString()} or until your seat is recovered.
             Anyone with this code can request your seat; keep it private.
           </p>
+        </>
+      )}
+      <div className="player-recovery-actions">
+        {code && (
           <button
             type="button"
             className="button secondary small-button"
@@ -38,32 +42,32 @@ export default function RecoveryCode({ sessionId }: { sessionId: string }) {
           >
             {copied ? 'Copied' : 'Copy code'}
           </button>
-        </>
-      )}
-      <button
-        type="button"
-        className="button secondary small-button"
-        disabled={busy}
-        onClick={async () => {
-          setBusy(true);
-          setError('');
-          try {
-            const result = await api<{ code: string; expiresAt: string }>(
-              `sessions/${sessionId}/recovery-code`,
-              'POST',
-            );
-            setCode(result.code);
-            setExpiresAt(result.expiresAt);
-            setCopied(false);
-          } catch (e) {
-            setError((e as Error).message);
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        {busy ? 'Generating…' : code ? 'Replace recovery code' : 'Generate recovery code'}
-      </button>
+        )}
+        <button
+          type="button"
+          className="button secondary small-button"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setError('');
+            try {
+              const result = await api<{ code: string; expiresAt: string }>(
+                `sessions/${sessionId}/recovery-code`,
+                'POST',
+              );
+              setCode(result.code);
+              setExpiresAt(result.expiresAt);
+              setCopied(false);
+            } catch (e) {
+              setError((e as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {busy ? 'Generating…' : code ? 'Replace recovery code' : 'Generate recovery code'}
+        </button>
+      </div>
       {error && (
         <p role="alert" className="error">
           {error}
