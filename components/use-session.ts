@@ -7,7 +7,11 @@ import { initialHealth, observeRequest } from '@/lib/connection-health';
 import type { Command } from '@/lib/game/schema';
 const stageKey = (s?: SessionView) =>
   JSON.stringify([s?.phase, s?.question?.id, s?.tiebreaker?.round?.id, s?.windowId]);
-export function useSession(id: string, role: 'host' | 'player' | 'audience', displayToken?: string) {
+export function useSession(
+  id: string,
+  role: 'host' | 'player' | 'audience',
+  displayToken?: string,
+) {
   const [state, setState] = useState<SessionView>();
   const stateRef = useRef<SessionView | undefined>(undefined);
   const [userId, setUserId] = useState('');
@@ -83,21 +87,26 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience', dis
         const sequence = ++requestSequence.current;
         const started = performance.now();
         try {
-          const next: SessionView = role === 'audience' && displayToken
-            ? await (async () => {
-                const response = await fetch(
-                  `/api/display/${id}?token=${encodeURIComponent(displayToken ?? '')}`,
-                  { cache: 'no-store', signal: AbortSignal.timeout(12000) },
+          const next: SessionView =
+            role === 'audience' && displayToken
+              ? await (async () => {
+                  const response = await fetch(
+                    `/api/display/${id}?token=${encodeURIComponent(displayToken ?? '')}`,
+                    { cache: 'no-store', signal: AbortSignal.timeout(12000) },
+                  );
+                  if (!response.ok) {
+                    const body = await response.json().catch(() => ({}));
+                    throw new Error(body.error ?? 'Audience display link is unavailable.');
+                  }
+                  return (await response.json()) as SessionView;
+                })()
+              : await api<SessionView>(
+                  `sessions/${id}${role === 'audience' ? '?view=audience' : ''}`,
+                  'GET',
+                  undefined,
+                  controller || undefined,
+                  12000,
                 );
-                if (!response.ok) {
-                  const body = await response.json().catch(() => ({}));
-                  throw new Error(body.error ?? 'Audience display link is unavailable.');
-                }
-                return (await response.json()) as SessionView;
-              })()
-            : await api<SessionView>(
-                `sessions/${id}${role === 'audience' ? '?view=audience' : ''}`, 'GET', undefined, controller || undefined, 12000,
-              );
           observe('command', started, true);
           accept(next, sequence);
         } catch (e) {
@@ -142,7 +151,12 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience', dis
     };
   }, [refresh, role, controller, displayToken]);
   useEffect(() => {
-    if ((role === 'audience' && displayToken) || !userId || !stateRef.current || (role === 'host' && !stateRef.current.controllerOwned))
+    if (
+      (role === 'audience' && displayToken) ||
+      !userId ||
+      !stateRef.current ||
+      (role === 'host' && !stateRef.current.controllerOwned)
+    )
       return;
     const client = supabase();
     let alive = true;
@@ -189,7 +203,8 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience', dis
           await refresh();
           if (!stopped) poll();
         },
-        (role === 'audience' && displayToken ? 2500 : realtimeHealthy.current ? 10000 : 3000) + Math.random() * 300,
+        (role === 'audience' && displayToken ? 2500 : realtimeHealthy.current ? 10000 : 3000) +
+          Math.random() * 300,
       );
     };
     poll();
