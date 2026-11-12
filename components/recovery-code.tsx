@@ -9,7 +9,7 @@ export default function RecoveryCode({ sessionId }: { sessionId: string }) {
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   return (
-    <details className="panel recovery-panel">
+    <details className="panel recovery-panel player-recovery">
       <summary>Save a player recovery code</summary>
       <p className="muted small">
         If you lose access to this browser during the game, you can reclaim your score and Final
