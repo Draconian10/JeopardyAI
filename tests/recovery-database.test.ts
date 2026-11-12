@@ -236,6 +236,48 @@ describe('atomic player-seat recovery across fifteen players', () => {
     expect(res.rows[0].r.state.players).toHaveLength(15);
   });
 
+  it('prevents old recovery codes from opening requests after atomic rotation', async () => {
+    const claimant = crypto.randomUUID();
+    const oldPlayer = players[2];
+    await pg.query('insert into auth.users values($1)', [claimant]);
+    const firstHash = 'c'.repeat(64);
+    const rotatedHash = 'd'.repeat(64);
+    const setup = await pg.query<{ ok: boolean }>(
+      "select public.rotate_player_recovery_code($1,$2,$3,now()+interval '12 hours') ok",
+      [session.id, oldPlayer, firstHash],
+    );
+    expect(setup.rows[0].ok).toBe(true);
+    const requested = await pg.query<{ r: { requestId: string } }>(
+      'select public.request_player_recovery($1,$2,$3) r',
+      [session.id, claimant, firstHash],
+    );
+    expect(requested.rows[0].r.requestId).toMatch(/^[0-9a-f-]{36}$/);
+    const rotated = await pg.query<{ ok: boolean }>(
+      "select public.rotate_player_recovery_code($1,$2,$3,now()+interval '12 hours') ok",
+      [session.id, oldPlayer, rotatedHash],
+    );
+    expect(rotated.rows[0].ok).toBe(true);
+    const invalidated = await pg.query<{ status: string }>(
+      'select status from public.session_player_recovery_requests where id=$1',
+      [requested.rows[0].r.requestId],
+    );
+    expect(invalidated.rows[0].status).toBe('rejected');
+    const obsolete = await pg.query<{ r: { status?: number } }>(
+      'select public.request_player_recovery($1,$2,$3) r',
+      [session.id, claimant, firstHash],
+    );
+    expect(obsolete.rows[0].r.status).toBe(404);
+    const fresh = await pg.query<{ r: { requestId: string } }>(
+      'select public.request_player_recovery($1,$2,$3) r',
+      [session.id, claimant, rotatedHash],
+    );
+    expect(fresh.rows[0].r.requestId).toMatch(/^[0-9a-f-]{36}$/);
+    const original = await pg.query<{ r: { state: Session } }>(
+      'select public.read_session_runtime($1) r', [session.id],
+    );
+    expect(original.rows[0].r.state.players).toHaveLength(15);
+  });
+
   it('keeps new private tables inaccessible to ordinary authenticated clients', async () => {
     await pg.exec('set role authenticated');
     try {
