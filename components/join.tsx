@@ -6,6 +6,7 @@ import { api, configured, supabase } from '@/lib/client';
 import { SetupNotice } from './auth';
 import { isHostPlayerConflict } from '@/lib/auth-flow';
 import PlayerGames from './player-games';
+import RecoveryJoin from './recovery-join';
 export default function Join() {
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
@@ -129,6 +130,7 @@ export default function Join() {
             <Users size={15} /> No account needed. Just a little confidence.
           </p>
         </form>
+        <RecoveryJoin initialCode={code} />
       </div>
     </div>
   );

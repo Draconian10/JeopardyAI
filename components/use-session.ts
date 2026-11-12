@@ -7,7 +7,11 @@ import { initialHealth, observeRequest } from '@/lib/connection-health';
 import type { Command } from '@/lib/game/schema';
 const stageKey = (s?: SessionView) =>
   JSON.stringify([s?.phase, s?.question?.id, s?.tiebreaker?.round?.id, s?.windowId]);
-export function useSession(id: string, role: 'host' | 'player' | 'audience') {
+export function useSession(
+  id: string,
+  role: 'host' | 'player' | 'audience',
+  displayToken?: string,
+) {
   const [state, setState] = useState<SessionView>();
   const stateRef = useRef<SessionView | undefined>(undefined);
   const [userId, setUserId] = useState('');
@@ -83,13 +87,26 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
         const sequence = ++requestSequence.current;
         const started = performance.now();
         try {
-          const next = await api<SessionView>(
-            `sessions/${id}${role === 'audience' ? '?view=audience' : ''}`,
-            'GET',
-            undefined,
-            controller || undefined,
-            12000,
-          );
+          const next: SessionView =
+            role === 'audience' && displayToken
+              ? await (async () => {
+                  const response = await fetch(
+                    `/api/display/${id}?token=${encodeURIComponent(displayToken ?? '')}`,
+                    { cache: 'no-store', signal: AbortSignal.timeout(12000) },
+                  );
+                  if (!response.ok) {
+                    const body = await response.json().catch(() => ({}));
+                    throw new Error(body.error ?? 'Audience display link is unavailable.');
+                  }
+                  return (await response.json()) as SessionView;
+                })()
+              : await api<SessionView>(
+                  `sessions/${id}${role === 'audience' ? '?view=audience' : ''}`,
+                  'GET',
+                  undefined,
+                  controller || undefined,
+                  12000,
+                );
           observe('command', started, true);
           accept(next, sequence);
         } catch (e) {
@@ -103,7 +120,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
     });
     refreshInFlight.current = pending;
     return pending;
-  }, [id, role, controller, accept, failSync, observe]);
+  }, [id, role, displayToken, controller, accept, failSync, observe]);
   useEffect(() => {
     if (role !== 'host') return;
     if (initialController.current?.id !== id) {
@@ -112,6 +129,11 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
     setController(initialController.current.value);
   }, [role, id]);
   useEffect(() => {
+    if (role === 'audience' && displayToken) {
+      setUserId('public-display');
+      void refresh();
+      return;
+    }
     if (!configured() || (role === 'host' && !controller)) return;
     let dead = false;
     const client = supabase();
@@ -127,9 +149,14 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
     return () => {
       dead = true;
     };
-  }, [refresh, role, controller]);
+  }, [refresh, role, controller, displayToken]);
   useEffect(() => {
-    if (!userId || !stateRef.current || (role === 'host' && !stateRef.current.controllerOwned))
+    if (
+      (role === 'audience' && displayToken) ||
+      !userId ||
+      !stateRef.current ||
+      (role === 'host' && !stateRef.current.controllerOwned)
+    )
       return;
     const client = supabase();
     let alive = true;
@@ -161,7 +188,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
       setHealth((current) => ({ ...current, transport: 'connecting' }));
       void client.removeChannel(channel);
     };
-  }, [id, userId, refresh, role, !!state?.controllerOwned, !!state]);
+  }, [id, userId, refresh, role, displayToken, !!state?.controllerOwned, !!state]);
   useEffect(() => {
     if (!userId) return;
     setHealth((current) => ({
@@ -176,7 +203,8 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
           await refresh();
           if (!stopped) poll();
         },
-        (realtimeHealthy.current ? 10000 : 3000) + Math.random() * 300,
+        (role === 'audience' && displayToken ? 2500 : realtimeHealthy.current ? 10000 : 3000) +
+          Math.random() * 300,
       );
     };
     poll();
@@ -193,7 +221,7 @@ export function useSession(id: string, role: 'host' | 'player' | 'audience') {
       window.removeEventListener('focus', focus);
       document.removeEventListener('visibilitychange', focus);
     };
-  }, [userId, refresh]);
+  }, [userId, role, displayToken, refresh]);
   const send = useCallback(
     async (command: Command, quiet = false) => {
       const current = stateRef.current;

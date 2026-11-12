@@ -2968,3 +2968,40 @@ input[type='checkbox'] {
     flex: 1 1 180px;
   }
 }
+
+/* Compact game-night recovery and audience-access controls. */
+.recovery-panel {
+  margin: 16px 0;
+  min-width: 0;
+}
+.recovery-panel summary {
+  cursor: pointer;
+  font-weight: 750;
+}
+.recovery-panel .button + .button,
+.display-access .button-row {
+  margin-top: 12px;
+}
+.recovery-code {
+  display: block;
+  padding: 12px;
+  font: 700 18px/1.5 monospace;
+  letter-spacing: 1px;
+  background: #f1f4f9;
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.recovery-request-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.display-access {
+  min-width: 0;
+  width: 100%;
+}

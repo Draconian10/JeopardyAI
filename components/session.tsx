@@ -34,6 +34,9 @@ import DownloadResults from './download-results';
 import ResultsConfetti from './results-confetti';
 import Tiebreaker from './tiebreaker';
 import ConnectionHealthPanel from './connection-health';
+import RecoveryCode from './recovery-code';
+import RecoveryRequests from './recovery-requests';
+import DisplayAccess from './display-access';
 import PracticeRound from './practice-round';
 import DailyDoubleWager from './daily-double-wager';
 import { PRACTICE_PHASES, TIE_PHASES } from '@/lib/game/engine';
@@ -41,15 +44,25 @@ import type { SessionView } from '@/lib/game/types';
 export default function GameSession({
   id,
   role,
+  displayToken,
 }: {
   id: string;
   role: 'host' | 'player' | 'audience';
+  displayToken?: string;
 }) {
   if (role === 'host') return <HostAuth>{() => <SessionInner id={id} role={role} />}</HostAuth>;
   if (!configured()) return <SetupNotice />;
-  return <SessionInner id={id} role={role} />;
+  return <SessionInner id={id} role={role} displayToken={displayToken} />;
 }
-function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'audience' }) {
+function SessionInner({
+  id,
+  role,
+  displayToken,
+}: {
+  id: string;
+  role: 'host' | 'player' | 'audience';
+  displayToken?: string;
+}) {
   const {
     state: s,
     userId,
@@ -64,7 +77,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
     send,
     remaining,
     answerRemaining,
-  } = useSession(id, role);
+  } = useSession(id, role, displayToken);
   const [pin, setPin] = useState('');
   const [wager, setWager] = useState('0');
   const [draft, setDraft] = useState('');
@@ -324,6 +337,8 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
       <p role="alert" className="error">
         {error}
       </p>
+      {player && me && !ended && <RecoveryCode sessionId={id} />}
+      {host && !ended && <RecoveryRequests sessionId={id} onApproved={refresh} />}
       {host && !control && !ended && (
         <div className="panel control-claim">
           <h2>Pick up where you left off.</h2>
@@ -1055,9 +1070,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
                         </p>
                       </div>
                     )}
-                    <Link className="button secondary full" href={`/display/${id}`} target="_blank">
-                      <Monitor size={16} /> Audience display
-                    </Link>
+                    <DisplayAccess sessionId={id} />
                     <button
                       className="text-button negative"
                       disabled={busy}
@@ -1081,9 +1094,7 @@ function SessionInner({ id, role }: { id: string; role: 'host' | 'player' | 'aud
       )}
       {control && s.phase === 'lobby' && (
         <div className="lobby-end">
-          <Link className="text-button" href={`/display/${id}`} target="_blank">
-            <Monitor size={16} /> Open audience display
-          </Link>
+          <DisplayAccess sessionId={id} />
           <button
             className="text-button negative"
             disabled={busy}

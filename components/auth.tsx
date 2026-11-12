@@ -1,8 +1,8 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { configured, supabase } from '@/lib/client';
-import { hostConfirmationRedirect } from '@/lib/auth-flow';
+import { hostConfirmationRedirect, hostPasswordRecoveryRedirect } from '@/lib/auth-flow';
 
 export function SetupNotice() {
   return (
@@ -20,37 +20,80 @@ export function SetupNotice() {
   );
 }
 
+type AuthMode = 'login' | 'signup' | 'forgot' | 'reset';
 export function HostAuth({ children }: { children: (user: User) => React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState<'login' | 'signup'>('login');
+  const [loadError, setLoadError] = useState('');
+  const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [pendingEmail, setPendingEmail] = useState('');
+  const [resetSent, setResetSent] = useState(false);
+  const [resetDone, setResetDone] = useState(false);
   const [returnedFromConfirmation, setReturnedFromConfirmation] = useState(false);
+  const checkUser = useCallback(async () => {
+    if (!configured()) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setLoadError('');
+    try {
+      const { data, error } = await supabase().auth.getUser();
+      if (error && error.name !== 'AuthSessionMissingError') throw error;
+      setUser(data.user);
+    } catch {
+      setLoadError('Could not contact the sign-in service. Check your connection and retry.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!configured()) {
       setLoading(false);
       return;
     }
-    setReturnedFromConfirmation(new URLSearchParams(window.location.search).has('confirmed'));
-    const client = supabase();
-    client.auth.getUser().then(({ data }) => {
-      setUser(data.user);
-      setLoading(false);
+    const query = new URLSearchParams(window.location.search);
+    setReturnedFromConfirmation(query.has('confirmed'));
+    if (query.has('reset')) setMode('reset');
+    void checkUser();
+    const { data } = supabase().auth.onAuthStateChange((event, session) => {
+      setUser(session?.user ?? null);
+      if (event === 'PASSWORD_RECOVERY') setMode('reset');
     });
-    const { data } = client.auth.onAuthStateChange((_event, session) =>
-      setUser(session?.user ?? null),
-    );
     return () => data.subscription.unsubscribe();
-  }, []);
+  }, [checkUser]);
+
+  const confirmUrl = () =>
+    hostConfirmationRedirect(window.location.origin, process.env.NEXT_PUBLIC_SITE_URL);
+  const resetUrl = () =>
+    hostPasswordRecoveryRedirect(window.location.origin, process.env.NEXT_PUBLIC_SITE_URL);
 
   if (!configured()) return <SetupNotice />;
-  if (loading) return <div className="loading">Opening the host’s room…</div>;
-  if (user && !user.is_anonymous)
+  if (loading)
+    return (
+      <div className="panel narrow auth-panel">
+        <p className="loading">Opening the host’s room…</p>
+      </div>
+    );
+  if (loadError)
+    return (
+      <div className="panel narrow auth-panel">
+        <h1>Unable to connect.</h1>
+        <p role="alert" className="error">
+          {loadError}
+        </p>
+        <button className="button primary full" onClick={() => void checkUser()}>
+          Retry sign-in
+        </button>
+      </div>
+    );
+  if (user && !user.is_anonymous && mode !== 'reset')
     return (
       <>
         <div className="account-row">
@@ -73,14 +116,38 @@ export function HostAuth({ children }: { children: (user: User) => React.ReactNo
         <>
           <h1>Check your inbox.</h1>
           <p role="status">
-            We sent a confirmation link to <strong>{pendingEmail}</strong>. Open the link to verify
-            your email, then come back and sign in to host.
+            We sent a confirmation link to <strong>{pendingEmail}</strong>. Verify your address,
+            then sign in to host.
           </p>
-          <p className="muted">
-            If you don't see it, check your spam folder. You don't need a Vercel account.
+          <p className="muted">The link returns to Jeopardy. No Vercel account is needed.</p>
+          <p role="alert" className="error">
+            {error}
           </p>
           <button
+            className="button secondary full"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              setError('');
+              try {
+                const result = await supabase().auth.resend({
+                  type: 'signup',
+                  email: pendingEmail,
+                  options: { emailRedirectTo: confirmUrl() },
+                });
+                if (result.error) throw result.error;
+              } catch (e) {
+                setError((e as Error).message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? 'Sending…' : 'Resend confirmation email'}
+          </button>
+          <button
             className="button primary full"
+            disabled={busy}
             onClick={() => {
               setPendingEmail('');
               setMode('login');
@@ -92,11 +159,35 @@ export function HostAuth({ children }: { children: (user: User) => React.ReactNo
         </>
       ) : (
         <>
-          <h1>{mode === 'login' ? 'Welcome back.' : 'Make game night yours.'}</h1>
-          <p className="muted">Sign in to save your boards and resume games from any device.</p>
-          {returnedFromConfirmation && (
+          <h1>
+            {mode === 'login'
+              ? 'Welcome back.'
+              : mode === 'signup'
+                ? 'Make game night yours.'
+                : mode === 'forgot'
+                  ? 'Reset your password.'
+                  : 'Choose a new password.'}
+          </h1>
+          {mode === 'login' || mode === 'signup' ? (
+            <p className="muted">Sign in to save your boards and resume games from any device.</p>
+          ) : mode === 'forgot' ? (
+            <p className="muted">We’ll email you a secure password-reset link.</p>
+          ) : (
+            <p className="muted">Set a new password to secure your host account.</p>
+          )}
+          {returnedFromConfirmation && mode === 'login' && (
             <p role="status" className="auth-notice">
-              Returning from your email link? Once your address is verified, sign in below.
+              Returning from your email link? Once verified, sign in below.
+            </p>
+          )}
+          {resetSent && mode === 'forgot' && (
+            <p role="status" className="auth-notice">
+              If an account exists for this address, we sent reset instructions. Check your inbox.
+            </p>
+          )}
+          {resetDone && mode === 'login' && (
+            <p role="status" className="auth-notice">
+              Password updated. Sign in to continue.
             </p>
           )}
           <form
@@ -105,27 +196,44 @@ export function HostAuth({ children }: { children: (user: User) => React.ReactNo
               setBusy(true);
               setError('');
               try {
-                if (user?.is_anonymous) {
-                  const signedOut = await supabase().auth.signOut({ scope: 'local' });
-                  if (signedOut.error) throw signedOut.error;
-                }
-                const result =
-                  mode === 'login'
-                    ? await supabase().auth.signInWithPassword({ email, password })
-                    : await supabase().auth.signUp({
-                        email,
-                        password,
-                        options: {
-                          emailRedirectTo: hostConfirmationRedirect(
-                            window.location.origin,
-                            process.env.NEXT_PUBLIC_SITE_URL,
-                          ),
-                        },
-                      });
-                if (result.error) throw result.error;
-                if (mode === 'signup') {
+                if (mode === 'reset') {
+                  if (!user) throw new Error('This reset link has expired. Request a new link.');
+                  if (password.length < 8) throw new Error('Use at least eight characters.');
+                  if (password !== confirmPassword) throw new Error('Passwords do not match.');
+                  const result = await supabase().auth.updateUser({ password });
+                  if (result.error) throw result.error;
+                  const out = await supabase().auth.signOut({ scope: 'local' });
+                  if (out.error) throw out.error;
+                  setUser(null);
+                  setMode('login');
+                  setResetDone(true);
                   setPassword('');
-                  if (!result.data.session) setPendingEmail(email);
+                  setConfirmPassword('');
+                  window.history.replaceState(null, '', '/host');
+                } else if (mode === 'forgot') {
+                  const result = await supabase().auth.resetPasswordForEmail(email, {
+                    redirectTo: resetUrl(),
+                  });
+                  if (result.error) throw result.error;
+                  setResetSent(true);
+                } else {
+                  if (user?.is_anonymous) {
+                    const out = await supabase().auth.signOut({ scope: 'local' });
+                    if (out.error) throw out.error;
+                  }
+                  const result =
+                    mode === 'login'
+                      ? await supabase().auth.signInWithPassword({ email, password })
+                      : await supabase().auth.signUp({
+                          email,
+                          password,
+                          options: { emailRedirectTo: confirmUrl() },
+                        });
+                  if (result.error) throw result.error;
+                  if (mode === 'signup') {
+                    setPassword('');
+                    if (!result.data.session) setPendingEmail(email);
+                  }
                 }
               } catch (e) {
                 setError((e as Error).message);
@@ -134,45 +242,118 @@ export function HostAuth({ children }: { children: (user: User) => React.ReactNo
               }
             }}
           >
-            <label>
-              Email
-              <input
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                maxLength={254}
-              />
-            </label>
-            <label>
-              Password
-              <input
-                type="password"
-                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={8}
-                maxLength={128}
-              />
-            </label>
+            {mode !== 'reset' && (
+              <label>
+                Email
+                <input
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  maxLength={254}
+                />
+              </label>
+            )}
+            {mode !== 'forgot' && (
+              <label>
+                {mode === 'reset' ? 'New password' : 'Password'}
+                <input
+                  type="password"
+                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={8}
+                  maxLength={128}
+                />
+              </label>
+            )}
+            {mode === 'reset' && (
+              <label>
+                Confirm new password
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                  minLength={8}
+                  maxLength={128}
+                />
+              </label>
+            )}
             <button className="button primary full" disabled={busy}>
-              {busy ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}
+              {busy
+                ? 'Please wait…'
+                : mode === 'login'
+                  ? 'Sign in'
+                  : mode === 'signup'
+                    ? 'Create account'
+                    : mode === 'forgot'
+                      ? 'Send reset link'
+                      : 'Update password'}
             </button>
           </form>
           <p role="alert" className="error">
             {error}
           </p>
-          <button
-            className="text-button"
-            onClick={() => {
-              setMode(mode === 'login' ? 'signup' : 'login');
-              setError('');
-            }}
-          >
-            {mode === 'login' ? 'New here? Create an account' : 'Already have an account? Sign in'}
-          </button>
+          {mode === 'login' && (
+            <>
+              <button
+                className="text-button"
+                onClick={() => {
+                  setMode('signup');
+                  setError('');
+                }}
+              >
+                New here? Create an account
+              </button>
+              <button
+                className="text-button"
+                onClick={() => {
+                  setMode('forgot');
+                  setError('');
+                  setResetSent(false);
+                }}
+              >
+                Forgot password?
+              </button>
+            </>
+          )}
+          {mode === 'signup' && (
+            <button
+              className="text-button"
+              onClick={() => {
+                setMode('login');
+                setError('');
+              }}
+            >
+              Already have an account? Sign in
+            </button>
+          )}
+          {mode === 'forgot' && (
+            <button
+              className="text-button"
+              onClick={() => {
+                setMode('login');
+                setError('');
+              }}
+            >
+              Back to sign in
+            </button>
+          )}
+          {mode === 'reset' && !user && (
+            <button
+              className="text-button"
+              onClick={() => {
+                setMode('forgot');
+                setError('');
+              }}
+            >
+              Request a new reset link
+            </button>
+          )}
         </>
       )}
     </div>
