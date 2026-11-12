@@ -92,40 +92,20 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
         .parse(await json(req));
       const { data: room, error: roomError } = await database
         .from('sessions')
-        .select('id,state')
+        .select('id')
         .eq('join_code', body.code)
         .eq('active', true)
         .maybeSingle();
       if (roomError) throw new GameError('Could not locate the game.', 503);
       if (!room) throw new GameError('Game or recovery code not found.', 404);
-      const game = room.state as Session;
-      if (game.hostId === user.id || game.players.some((p) => p.id === user.id))
-        throw new GameError('This identity already belongs to the game.', 409);
-      const { data: codes, error } = await database
-        .from('session_player_recovery_codes')
-        .select('player_id,code_hash,expires_at')
-        .eq('session_id', room.id);
-      if (error) throw new GameError('Could not check the recovery code.', 503);
-      const hash = guestSecretHash('recovery', room.id, body.recoveryCode);
-      const found = codes.find(
-        (entry) =>
-          new Date(entry.expires_at).getTime() > Date.now() &&
-          secretMatches(entry.code_hash, hash) &&
-          game.players.some((p) => p.id === entry.player_id && !p.removed),
-      );
-      if (!found) throw new GameError('Game or recovery code not found.', 404);
-      const { data: request, error: requestError } = await database
-        .from('session_player_recovery_requests')
-        .insert({
-          session_id: room.id,
-          player_id: found.player_id,
-          claimant_id: user.id,
-          expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
-        })
-        .select('id')
-        .single();
-      if (requestError) throw new GameError('Could not request recovery.', 503);
-      return NextResponse.json({ requestId: request.id }, { status: 201 });
+      const { data: requested, error } = await database.rpc('request_player_recovery', {
+        p_session: room.id,
+        p_claimant: user.id,
+        p_hash: guestSecretHash('recovery', room.id, body.recoveryCode),
+      });
+      if (error) throw new GameError('Could not request recovery.', 503);
+      if (requested?.error) throw new GameError(requested.error, requested.status);
+      return NextResponse.json({ requestId: requested.requestId }, { status: 201 });
     }
     if (resource === 'recovery' && id && req.method === 'GET' && !op) {
       uuid.parse(id);
