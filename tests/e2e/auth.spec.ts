@@ -63,9 +63,7 @@ test('signing out of the host account uses the local scope', async ({ page }) =>
     }
     return route.fulfill({ json: host });
   });
-  await page.route('**/api/games', (route) =>
-    route.fulfill({ json: { games: [], sessions: [] } }),
-  );
+  await page.route('**/api/games', (route) => route.fulfill({ json: { games: [], sessions: [] } }));
 
   await page.goto('/host');
   await page.getByRole('button', { name: 'Sign out' }).click();
