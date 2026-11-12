@@ -122,23 +122,29 @@ test('signup and forgot-password links stay visibly separated at desktop and mob
   const b = await forgot.boundingBox();
   expect(a).not.toBeNull();
   expect(b).not.toBeNull();
-  expect(
-    b!.x >= a!.x + a!.width + 12 ||
-    b!.y >= a!.y + a!.height + 6,
-  ).toBe(true);
+  expect(b!.x >= a!.x + a!.width + 12 || b!.y >= a!.y + a!.height + 6).toBe(true);
   await forgot.click();
   await expect(page.getByRole('button', { name: 'Send reset link' })).toBeVisible();
 });
 
 test('account recovery replaces the password and returns to login', async ({ page }) => {
   const token = `${Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')}.${Buffer.from(JSON.stringify({ sub: host.id, role: 'authenticated', aud: 'authenticated', exp: Math.floor(Date.now() / 1000) + 3600, iat: Math.floor(Date.now() / 1000) })).toString('base64url')}.test`;
-  await page.addInitScript(({ token, user }) => {
-    localStorage.setItem('sb-example-auth-token', JSON.stringify({
-      access_token: token, refresh_token: 'test',
-      expires_in: 3600, expires_at: Math.floor(Date.now() / 1000) + 3600,
-      token_type: 'bearer', user,
-    }));
-  }, { token, user: host });
+  await page.addInitScript(
+    ({ token, user }) => {
+      localStorage.setItem(
+        'sb-example-auth-token',
+        JSON.stringify({
+          access_token: token,
+          refresh_token: 'test',
+          expires_in: 3600,
+          expires_at: Math.floor(Date.now() / 1000) + 3600,
+          token_type: 'bearer',
+          user,
+        }),
+      );
+    },
+    { token, user: host },
+  );
   let updatedPassword = '';
   let signoutScope = '';
   await page.route('https://example.supabase.co/auth/v1/**', async (route) => {
@@ -166,13 +172,22 @@ test('account recovery replaces the password and returns to login', async ({ pag
 
 test('initial authentication outage has a usable Retry sign-in action', async ({ page }) => {
   const token = `${Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')}.${Buffer.from(JSON.stringify({ sub: host.id, role: 'authenticated', aud: 'authenticated', exp: Math.floor(Date.now() / 1000) + 3600, iat: Math.floor(Date.now() / 1000) })).toString('base64url')}.test`;
-  await page.addInitScript(({ token, user }) => {
-    localStorage.setItem('sb-example-auth-token', JSON.stringify({
-      access_token: token, refresh_token: 'test',
-      expires_in: 3600, expires_at: Math.floor(Date.now() / 1000) + 3600,
-      token_type: 'bearer', user,
-    }));
-  }, { token, user: host });
+  await page.addInitScript(
+    ({ token, user }) => {
+      localStorage.setItem(
+        'sb-example-auth-token',
+        JSON.stringify({
+          access_token: token,
+          refresh_token: 'test',
+          expires_in: 3600,
+          expires_at: Math.floor(Date.now() / 1000) + 3600,
+          token_type: 'bearer',
+          user,
+        }),
+      );
+    },
+    { token, user: host },
+  );
   let attempts = 0;
   await page.route('https://example.supabase.co/auth/v1/**', async (route) => {
     if (new URL(route.request().url()).pathname.endsWith('/user')) {
