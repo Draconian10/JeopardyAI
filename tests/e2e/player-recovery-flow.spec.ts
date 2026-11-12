@@ -41,20 +41,18 @@ test('lost-seat player submits a recovery code, waits for approval, then reconne
   });
   await page.route(`**/api/recovery/${requestId}`, (route) =>
     route.fulfill({
-      json: recovered
-        ? { status: 'approved', sessionId }
-        : { status: 'pending' },
+      json: recovered ? { status: 'approved', sessionId } : { status: 'pending' },
     }),
   );
-  await page.route('**/api/player-sessions', (route) =>
-    route.fulfill({ json: { sessions: [] } }),
-  );
+  await page.route('**/api/player-sessions', (route) => route.fulfill({ json: { sessions: [] } }));
   await page.goto('/join');
   await page.getByRole('button', { name: 'Lost your place? Recover your player seat' }).click();
   await page.getByLabel('Six-digit game code').fill('123456');
   await page.getByLabel('Private recovery code').fill('R'.repeat(24));
   await page.getByRole('button', { name: 'Request host approval' }).click();
-  await expect(page.getByText('Waiting for the host to approve your recovery request.')).toBeVisible();
+  await expect(
+    page.getByText('Waiting for the host to approve your recovery request.'),
+  ).toBeVisible();
   expect(captured).toEqual({ code: '123456', recoveryCode: 'R'.repeat(24) });
   expect(issuedGuest).toBe(1);
   recovered = true;
