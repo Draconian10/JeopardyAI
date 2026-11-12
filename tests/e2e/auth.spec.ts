@@ -70,3 +70,43 @@ test('signing out of the host account uses the local scope', async ({ page }) =>
   await expect(page.getByRole('heading', { name: 'Welcome back.' })).toBeVisible();
   expect(signedOutScope).toBe('local');
 });
+
+test('forgot password requests a link to the public host reset screen', async ({ page }) => {
+  let redirect = '';
+  await page.route('https://example.supabase.co/auth/v1/**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/recover')) {
+      redirect = url.searchParams.get('redirect_to') || '';
+      return route.fulfill({ json: {} });
+    }
+    return route.fulfill({ json: host });
+  });
+  await page.goto('/host');
+  await page.getByRole('button', { name: 'Forgot password?' }).click();
+  await page.getByLabel('Email').fill('host@example.com');
+  await page.getByRole('button', { name: 'Send reset link' }).click();
+  await expect(page.getByText('If an account exists for this address')).toBeVisible();
+  expect(redirect).toBe('http://127.0.0.1:3000/host?reset=1');
+});
+
+test('confirmation-pending hosts can request another verification email', async ({ page }) => {
+  let resent = false;
+  await page.route('https://example.supabase.co/auth/v1/**', async (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname.endsWith('/signup'))
+      return route.fulfill({ json: { user: host, session: null } });
+    if (pathname.endsWith('/resend')) {
+      resent = true;
+      return route.fulfill({ json: {} });
+    }
+    return route.fulfill({ json: host });
+  });
+  await page.goto('/host');
+  await page.getByRole('button', { name: 'New here? Create an account' }).click();
+  await page.getByLabel('Email').fill('host@example.com');
+  await page.getByLabel('Password').fill('secure-password-123');
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page.getByRole('heading', { name: 'Check your inbox.' })).toBeVisible();
+  await page.getByRole('button', { name: 'Resend confirmation email' }).click();
+  await expect.poll(() => resent).toBe(true);
+});
