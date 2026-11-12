@@ -457,6 +457,18 @@ main {
 .auth-panel > .text-button {
   margin-top: 16px;
 }
+.auth-link-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  column-gap: 24px;
+  row-gap: 6px;
+  margin-top: 12px;
+}
+.auth-link-row .text-button {
+  white-space: nowrap;
+}
 label {
   display: flex;
   flex-direction: column;
@@ -2978,8 +2990,7 @@ input[type='checkbox'] {
   cursor: pointer;
   font-weight: 750;
 }
-.recovery-panel .button + .button,
-.display-access .button-row {
+.recovery-panel .button + .button {
   margin-top: 12px;
 }
 .recovery-code {
@@ -3002,6 +3013,90 @@ input[type='checkbox'] {
   border-top: 1px solid var(--line);
 }
 .display-access {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
   min-width: 0;
+}
+.display-access--sidebar {
   width: 100%;
+}
+.display-access--sidebar > .button {
+  flex: 1;
+  min-width: 0;
+}
+.display-access--lobby > .text-button {
+  white-space: nowrap;
+}
+.display-options {
+  position: relative;
+  flex: 0 0 auto;
+}
+.display-options > summary {
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  color: #68758a;
+  cursor: pointer;
+}
+.display-options > summary::-webkit-details-marker {
+  display: none;
+}
+.display-options > summary:hover,
+.display-options > summary:focus-visible {
+  background: #eaf0f6;
+}
+.display-options-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 165px;
+  padding: 5px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 12px 30px #23133924;
+}
+.display-options-menu button {
+  border: 0;
+  background: transparent;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 9px;
+  padding: 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+  color: var(--navy);
+}
+.display-options-menu button:hover {
+  background: #f1f4f9;
+}
+.display-options-menu button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+.display-access-error {
+  flex: 1 0 100%;
+  margin: 2px 0 0;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
