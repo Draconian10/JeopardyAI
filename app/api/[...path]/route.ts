@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomInt } from 'node:crypto';
+import { guestSecret, guestSecretHash, secretMatches } from '@/lib/server/guest-access';
 import { playerSessionSummary } from '@/lib/game/player-sessions';
 import { resultsCsv } from '@/lib/game/results-csv';
 import type { Session } from '@/lib/game/types';
@@ -29,10 +30,32 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
       if (origin && origin !== req.nextUrl.origin)
         throw new GameError('Cross-origin request rejected.', 403);
     }
-    const user = await identity(req);
     const { path } = await ctx.params;
     const [resource, id, op] = path;
     if (path.length > 3) throw new GameError('Route not found.', 404);
+    // Audience links are scoped read-only bearer capabilities, not Supabase identities.
+    if (resource === 'display' && req.method === 'GET' && id && !op) {
+      uuid.parse(id);
+      const token = req.nextUrl.searchParams.get('token') ?? '';
+      if (!/^[A-Za-z0-9_-]{32}$/.test(token)) throw new GameError('Display link is invalid.', 403);
+      await limit(req, id, 'display-read', 600, 60);
+      const { data: link, error } = await db()
+        .from('session_display_links')
+        .select('token_hash')
+        .eq('session_id', id)
+        .gt('expires_at', new Date().toISOString())
+        .maybeSingle();
+      if (error) throw new GameError('Could not validate the display link.', 503);
+      if (!link || !secretMatches(link.token_hash, guestSecretHash('display', id, token)))
+        throw new GameError('Display link has expired or was replaced.', 403);
+      const { state, runtimeAt } = await readSession(id);
+      return NextResponse.json({
+        ...viewSession(state, state.hostId, Date.now(), undefined, true),
+        controllerOwned: false,
+        runtimeAt,
+      });
+    }
+    const user = await identity(req);
     const database = db();
     if (resource === 'player-sessions' && req.method === 'GET' && !id) {
       const { data: memberships, error: membershipError } = await database
@@ -57,6 +80,70 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
           const summary = playerSessionSummary(row.state as Session, user.id);
           return summary ? [summary] : [];
         }),
+      });
+    }
+    if (resource === 'recovery' && id === 'request' && req.method === 'POST' && !op) {
+      await limit(req, user.id, 'recovery-request', 30, 60);
+      if (!user.is_anonymous)
+        throw new GameError('Recover a seat from a separate anonymous player session.', 403);
+      const body = z
+        .object({ code: pinSchema, recoveryCode: z.string().regex(/^[A-Za-z0-9_-]{24}$/) })
+        .strict()
+        .parse(await json(req));
+      const { data: room, error: roomError } = await database
+        .from('sessions')
+        .select('id,state')
+        .eq('join_code', body.code)
+        .eq('active', true)
+        .maybeSingle();
+      if (roomError) throw new GameError('Could not locate the game.', 503);
+      if (!room) throw new GameError('Game or recovery code not found.', 404);
+      const game = room.state as Session;
+      if (game.hostId === user.id || game.players.some((p) => p.id === user.id))
+        throw new GameError('This identity already belongs to the game.', 409);
+      const { data: codes, error } = await database
+        .from('session_player_recovery_codes')
+        .select('player_id,code_hash,expires_at')
+        .eq('session_id', room.id);
+      if (error) throw new GameError('Could not check the recovery code.', 503);
+      const hash = guestSecretHash('recovery', room.id, body.recoveryCode);
+      const found = codes.find(
+        (entry) =>
+          new Date(entry.expires_at).getTime() > Date.now() &&
+          secretMatches(entry.code_hash, hash) &&
+          game.players.some((p) => p.id === entry.player_id && !p.removed),
+      );
+      if (!found) throw new GameError('Game or recovery code not found.', 404);
+      const { data: request, error: requestError } = await database
+        .from('session_player_recovery_requests')
+        .insert({
+          session_id: room.id,
+          player_id: found.player_id,
+          claimant_id: user.id,
+          expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
+        })
+        .select('id')
+        .single();
+      if (requestError) throw new GameError('Could not request recovery.', 503);
+      return NextResponse.json({ requestId: request.id }, { status: 201 });
+    }
+    if (resource === 'recovery' && id && req.method === 'GET' && !op) {
+      uuid.parse(id);
+      const { data: request, error } = await database
+        .from('session_player_recovery_requests')
+        .select('status,session_id,expires_at')
+        .eq('id', id)
+        .eq('claimant_id', user.id)
+        .maybeSingle();
+      if (error) throw new GameError('Could not check recovery status.', 503);
+      if (!request) throw new GameError('Recovery request not found.', 404);
+      const status =
+        request.status === 'pending' && new Date(request.expires_at).getTime() < Date.now()
+          ? 'expired'
+          : request.status;
+      return NextResponse.json({
+        status,
+        ...(status === 'approved' ? { sessionId: request.session_id } : {}),
       });
     }
     if (resource === 'games') {
@@ -290,6 +377,82 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
       uuid.parse(id);
       const controller = req.headers.get('x-controller') ?? undefined;
       if (controller) uuid.parse(controller);
+      if (req.method === 'POST' && op === 'recovery-code') {
+        await limit(req, user.id, 'recovery-code', 60, 60);
+        const { state } = await readSession(id);
+        if (['ended', 'finished'].includes(state.phase))
+          throw new GameError('This game has ended.', 409);
+        if (!state.players.some((p) => p.id === user.id && !p.removed))
+          throw new GameError('Only a joined player can create a recovery code.', 403);
+        const code = guestSecret(18);
+        const expiresAt = new Date(Date.now() + 12 * 60 * 60_000).toISOString();
+        const { error } = await database.from('session_player_recovery_codes').upsert(
+          { session_id: id, player_id: user.id,
+            code_hash: guestSecretHash('recovery', id, code), expires_at: expiresAt },
+          { onConflict: 'session_id,player_id' },
+        );
+        if (error) throw new GameError('Could not create a recovery code.', 503);
+        return NextResponse.json({ code, expiresAt });
+      }
+      if (req.method === 'POST' && op === 'display-link') {
+        hostOnly(user);
+        await limit(req, user.id, 'display-link', 60, 60);
+        const { state } = await readSession(id);
+        if (state.hostId !== user.id) throw new GameError('Only the host can share a display.', 403);
+        const token = guestSecret(24);
+        const expiresAt = new Date(Date.now() + 12 * 60 * 60_000).toISOString();
+        const { error } = await database.from('session_display_links').upsert(
+          { session_id: id, token_hash: guestSecretHash('display', id, token),
+            expires_at: expiresAt, created_at: new Date().toISOString() },
+          { onConflict: 'session_id' },
+        );
+        if (error) throw new GameError('Could not create the display link.', 503);
+        return NextResponse.json({ token, expiresAt });
+      }
+      if (req.method === 'GET' && op === 'recovery-requests') {
+        hostOnly(user);
+        const { state } = await readSession(id);
+        if (state.hostId !== user.id) throw new GameError('Only the host can review requests.', 403);
+        const { data: rows, error } = await database
+          .from('session_player_recovery_requests')
+          .select('id,player_id,requested_at,expires_at')
+          .eq('session_id', id)
+          .eq('status', 'pending')
+          .gt('expires_at', new Date().toISOString())
+          .order('requested_at', { ascending: true })
+          .limit(50);
+        if (error) throw new GameError('Could not load recovery requests.', 503);
+        return NextResponse.json({
+          requests: rows.flatMap((r) => {
+            const player = state.players.find((p) => p.id === r.player_id && !p.removed);
+            return player ? [{ id: r.id, name: player.name, requestedAt: r.requested_at }] : [];
+          }),
+        });
+      }
+      if (req.method === 'POST' && (op === 'recovery-approve' || op === 'recovery-reject')) {
+        hostOnly(user);
+        await limit(req, user.id, 'recovery-review', 120, 60);
+        const body = z.object({ requestId: uuid }).strict().parse(await json(req));
+        const { state } = await readSession(id);
+        if (state.hostId !== user.id) throw new GameError('Only the host can review requests.', 403);
+        if (op === 'recovery-reject') {
+          const { error } = await database
+            .from('session_player_recovery_requests')
+            .update({ status: 'rejected', resolved_at: new Date().toISOString() })
+            .eq('session_id', id)
+            .eq('id', body.requestId)
+            .eq('status', 'pending')
+            .gt('expires_at', new Date().toISOString());
+          if (error) throw new GameError('Could not decline recovery.', 503);
+          return NextResponse.json({ rejected: true });
+        }
+        const { data, error } = await database.rpc('approve_player_recovery', {
+          p_session: id, p_host: user.id, p_request: body.requestId,
+        });
+        if (error) throw new GameError('Could not approve recovery.', 503);
+        if (data?.error) throw new GameError(data.error, data.status);
+        return NextResponse.json(data);
+      }
       if (req.method === 'GET' && op === 'results') {
         hostOnly(user);
         const { state } = await readSession(id);
