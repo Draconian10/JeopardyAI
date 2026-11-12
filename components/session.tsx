@@ -54,7 +54,15 @@ export default function GameSession({
   if (!configured()) return <SetupNotice />;
   return <SessionInner id={id} role={role} displayToken={displayToken} />;
 }
-function SessionInner({ id, role, displayToken }: { id: string; role: 'host' | 'player' | 'audience'; displayToken?: string }) {
+function SessionInner({
+  id,
+  role,
+  displayToken,
+}: {
+  id: string;
+  role: 'host' | 'player' | 'audience';
+  displayToken?: string;
+}) {
   const {
     state: s,
     userId,
