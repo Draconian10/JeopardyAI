@@ -60,6 +60,30 @@ begin
 end;
 $$;
 
+-- Code rotation also cancels outstanding claims using the previous secret.
+-- Taking the session lock serializes it with host-approved seat transfers.
+create function public.rotate_player_recovery_code(
+  p_session uuid,p_player uuid,p_hash text,p_expires timestamptz
+) returns boolean language plpgsql security definer set search_path='' as $
+declare s public.sessions%rowtype;
+begin
+  select * into s from public.sessions where id=p_session for update;
+  if not found or not s.active or char_length(p_hash)<>64
+    or not exists(select 1 from jsonb_array_elements(s.state->'players') p
+      where p->>'id'=p_player::text and not (p->>'removed')::boolean) then
+    return false;
+  end if;
+  insert into public.session_player_recovery_codes(session_id,player_id,code_hash,expires_at)
+    values(p_session,p_player,p_hash,p_expires)
+    on conflict(session_id,player_id) do update
+      set code_hash=excluded.code_hash,expires_at=excluded.expires_at;
+  update public.session_player_recovery_requests
+    set status='rejected',resolved_at=clock_timestamp()
+    where session_id=p_session and player_id=p_player and status='pending';
+  return true;
+end;
+$;
+
 -- Atomic: serializes against game commits and Final draft writes by locking the
 -- host lease and aggregate; no in-flight command can overwrite the transferred seat.
 create function public.approve_player_recovery(p_session uuid,p_host uuid,p_request uuid)
@@ -119,9 +143,11 @@ end;
 $$;
 
 revoke all on function public.replace_player_identity(jsonb,text,text),
-  public.approve_player_recovery(uuid,uuid,uuid) from public,anon,authenticated;
+  public.approve_player_recovery(uuid,uuid,uuid),
+  public.rotate_player_recovery_code(uuid,uuid,text,timestamptz) from public,anon,authenticated;
 grant execute on function public.replace_player_identity(jsonb,text,text),
-  public.approve_player_recovery(uuid,uuid,uuid) to service_role;
+  public.approve_player_recovery(uuid,uuid,uuid),
+  public.rotate_player_recovery_code(uuid,uuid,text,timestamptz) to service_role;
 
 notify pgrst, 'reload schema';
 commit;
