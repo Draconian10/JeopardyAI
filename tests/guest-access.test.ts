@@ -19,7 +19,9 @@ describe('restricted spectator and player recovery credentials', () => {
       expect(hash).toMatch(/^[a-f0-9]{64}$/);
       expect(secretMatches(hash, guestSecretHash('recovery', id, raw))).toBe(true);
       expect(secretMatches(hash, guestSecretHash('display', id, raw))).toBe(false);
-      expect(secretMatches(hash, guestSecretHash('recovery', crypto.randomUUID(), raw))).toBe(false);
+      expect(secretMatches(hash, guestSecretHash('recovery', crypto.randomUUID(), raw))).toBe(
+        false,
+      );
       expect(secretMatches('invalid', hash)).toBe(false);
     } finally {
       vi.unstubAllEnvs();
