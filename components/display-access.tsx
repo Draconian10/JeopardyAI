@@ -19,7 +19,8 @@ export default function DisplayAccess({ sessionId }: { sessionId: string }) {
           setError('');
           try {
             const result = await api<{ token: string; expiresAt: string }>(
-              `sessions/${sessionId}/display-link`, 'POST',
+              `sessions/${sessionId}/display-link`,
+              'POST',
             );
             const link = new URL(`/display/${sessionId}`, window.location.origin);
             link.searchParams.set('token', result.token);
@@ -33,12 +34,21 @@ export default function DisplayAccess({ sessionId }: { sessionId: string }) {
           }
         }}
       >
-        {busy ? 'Preparing display…' : url ? 'Replace audience link' : 'Create audience display link'}
+        {busy
+          ? 'Preparing display…'
+          : url
+            ? 'Replace audience link'
+            : 'Create audience display link'}
       </button>
       {url && (
         <>
           <div className="button-row">
-            <a href={url} target="_blank" rel="noopener noreferrer" className="button primary small-button">
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="button primary small-button"
+            >
               Open display
             </a>
             <button
@@ -58,12 +68,16 @@ export default function DisplayAccess({ sessionId }: { sessionId: string }) {
           </div>
           <p className="muted small">
             Read-only link; works on a TV or projector without logging in. Expires{' '}
-            {new Date(expiresAt).toLocaleString()}. Replacing it revokes the old link.
-            Do not share it publicly.
+            {new Date(expiresAt).toLocaleString()}. Replacing it revokes the old link. Do not share
+            it publicly.
           </p>
         </>
       )}
-      {error && <p role="alert" className="error">{error}</p>}
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
