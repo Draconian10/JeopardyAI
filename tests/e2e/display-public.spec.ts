@@ -31,7 +31,7 @@ test('private audience link displays a sanitized board without a Supabase login'
   });
   await page.goto(`/display/${s.id}?token=${'A'.repeat(32)}`);
   await expect(page.getByText(s.title).first()).toBeVisible();
-  await expect(page.getByText('Ada')).toBeVisible();
+  await expect(page.getByText('Ada', { exact: true })).toBeVisible();
   await expect(page.getByText(s.board.questions[0].answer, { exact: true })).toHaveCount(0);
   await expect(page.getByText('HOST CONTROLS')).toHaveCount(0);
   expect(requested).toBeGreaterThan(0);
