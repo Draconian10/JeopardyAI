@@ -386,11 +386,17 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
           throw new GameError('Only a joined player can create a recovery code.', 403);
         const code = guestSecret(18);
         const expiresAt = new Date(Date.now() + 12 * 60 * 60_000).toISOString();
-        const { error } = await database.from('session_player_recovery_codes').upsert(
-          { session_id: id, player_id: user.id,
-            code_hash: guestSecretHash('recovery', id, code), expires_at: expiresAt },
-          { onConflict: 'session_id,player_id' },
-        );
+        const { error } = await database
+          .from('session_player_recovery_codes')
+          .upsert(
+            {
+              session_id: id,
+              player_id: user.id,
+              code_hash: guestSecretHash('recovery', id, code),
+              expires_at: expiresAt,
+            },
+            { onConflict: 'session_id,player_id' },
+          );
         if (error) throw new GameError('Could not create a recovery code.', 503);
         return NextResponse.json({ code, expiresAt });
       }
@@ -398,21 +404,29 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
         hostOnly(user);
         await limit(req, user.id, 'display-link', 60, 60);
         const { state } = await readSession(id);
-        if (state.hostId !== user.id) throw new GameError('Only the host can share a display.', 403);
+        if (state.hostId !== user.id)
+          throw new GameError('Only the host can share a display.', 403);
         const token = guestSecret(24);
         const expiresAt = new Date(Date.now() + 12 * 60 * 60_000).toISOString();
-        const { error } = await database.from('session_display_links').upsert(
-          { session_id: id, token_hash: guestSecretHash('display', id, token),
-            expires_at: expiresAt, created_at: new Date().toISOString() },
-          { onConflict: 'session_id' },
-        );
+        const { error } = await database
+          .from('session_display_links')
+          .upsert(
+            {
+              session_id: id,
+              token_hash: guestSecretHash('display', id, token),
+              expires_at: expiresAt,
+              created_at: new Date().toISOString(),
+            },
+            { onConflict: 'session_id' },
+          );
         if (error) throw new GameError('Could not create the display link.', 503);
         return NextResponse.json({ token, expiresAt });
       }
       if (req.method === 'GET' && op === 'recovery-requests') {
         hostOnly(user);
         const { state } = await readSession(id);
-        if (state.hostId !== user.id) throw new GameError('Only the host can review requests.', 403);
+        if (state.hostId !== user.id)
+          throw new GameError('Only the host can review requests.', 403);
         const { data: rows, error } = await database
           .from('session_player_recovery_requests')
           .select('id,player_id,requested_at,expires_at')
@@ -432,9 +446,13 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
       if (req.method === 'POST' && (op === 'recovery-approve' || op === 'recovery-reject')) {
         hostOnly(user);
         await limit(req, user.id, 'recovery-review', 120, 60);
-        const body = z.object({ requestId: uuid }).strict().parse(await json(req));
+        const body = z
+          .object({ requestId: uuid })
+          .strict()
+          .parse(await json(req));
         const { state } = await readSession(id);
-        if (state.hostId !== user.id) throw new GameError('Only the host can review requests.', 403);
+        if (state.hostId !== user.id)
+          throw new GameError('Only the host can review requests.', 403);
         if (op === 'recovery-reject') {
           const { error } = await database
             .from('session_player_recovery_requests')
@@ -447,7 +465,9 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
           return NextResponse.json({ rejected: true });
         }
         const { data, error } = await database.rpc('approve_player_recovery', {
-          p_session: id, p_host: user.id, p_request: body.requestId,
+          p_session: id,
+          p_host: user.id,
+          p_request: body.requestId,
         });
         if (error) throw new GameError('Could not approve recovery.', 503);
         if (data?.error) throw new GameError(data.error, data.status);
