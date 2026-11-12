@@ -11,7 +11,6 @@ export function guestSecretHash(kind: 'recovery' | 'display', sessionId: string,
 }
 
 export function secretMatches(expectedHash: string, suppliedHash: string) {
-  if (!/^[a-f0-9]{64}$/.test(expectedHash) || !/^[a-f0-9]{64}$/.test(suppliedHash))
-    return false;
+  if (!/^[a-f0-9]{64}$/.test(expectedHash) || !/^[a-f0-9]{64}$/.test(suppliedHash)) return false;
   return timingSafeEqual(Buffer.from(expectedHash, 'hex'), Buffer.from(suppliedHash, 'hex'));
 }
