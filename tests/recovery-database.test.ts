@@ -273,7 +273,8 @@ describe('atomic player-seat recovery across fifteen players', () => {
     );
     expect(fresh.rows[0].r.requestId).toMatch(/^[0-9a-f-]{36}$/);
     const original = await pg.query<{ r: { state: Session } }>(
-      'select public.read_session_runtime($1) r', [session.id],
+      'select public.read_session_runtime($1) r',
+      [session.id],
     );
     expect(original.rows[0].r.state.players).toHaveLength(15);
   });
