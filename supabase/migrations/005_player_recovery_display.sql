@@ -84,6 +84,36 @@ begin
 end;
 $$;
 
+-- Serialize recovery requests with secret rotation and seat transfers.
+-- Reads the aggregate with a shared lock, without touching the gameplay state.
+create function public.request_player_recovery(
+  p_session uuid,p_claimant uuid,p_hash text
+) returns jsonb language plpgsql security definer set search_path='' as $
+declare game_state jsonb; previous uuid; request_uuid uuid;
+begin
+  select state into game_state from public.sessions
+    where id=p_session and active for share;
+  if not found then return jsonb_build_object('error','Game or recovery code not found.','status',404); end if;
+  if p_claimant::text=game_state->>'hostId'
+     or exists(select 1 from jsonb_array_elements(game_state->'players') p
+       where p->>'id'=p_claimant::text) then
+    return jsonb_build_object('error','This identity already belongs to the game.','status',409);
+  end if;
+  select player_id into previous from public.session_player_recovery_codes
+    where session_id=p_session and code_hash=p_hash and expires_at>clock_timestamp();
+  if not found or not exists(
+    select 1 from jsonb_array_elements(game_state->'players') p
+      where p->>'id'=previous::text and not (p->>'removed')::boolean
+  ) then return jsonb_build_object('error','Game or recovery code not found.','status',404);
+  end if;
+  insert into public.session_player_recovery_requests(
+    session_id,player_id,claimant_id,expires_at
+  ) values(p_session,previous,p_claimant,clock_timestamp()+interval '10 minutes')
+  returning id into request_uuid;
+  return jsonb_build_object('requestId',request_uuid);
+end;
+$;
+
 -- Atomic: serializes against game commits and Final draft writes by locking the
 -- host lease and aggregate; no in-flight command can overwrite the transferred seat.
 create function public.approve_player_recovery(p_session uuid,p_host uuid,p_request uuid)
@@ -144,10 +174,12 @@ $$;
 
 revoke all on function public.replace_player_identity(jsonb,text,text),
   public.approve_player_recovery(uuid,uuid,uuid),
-  public.rotate_player_recovery_code(uuid,uuid,text,timestamptz) from public,anon,authenticated;
+  public.rotate_player_recovery_code(uuid,uuid,text,timestamptz),
+  public.request_player_recovery(uuid,uuid,text) from public,anon,authenticated;
 grant execute on function public.replace_player_identity(jsonb,text,text),
   public.approve_player_recovery(uuid,uuid,uuid),
-  public.rotate_player_recovery_code(uuid,uuid,text,timestamptz) to service_role;
+  public.rotate_player_recovery_code(uuid,uuid,text,timestamptz),
+  public.request_player_recovery(uuid,uuid,text) to service_role;
 
 notify pgrst, 'reload schema';
 commit;
