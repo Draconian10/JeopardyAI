@@ -93,8 +93,7 @@ test('confirmation-pending hosts can request another verification email', async 
   let resent = false;
   await page.route('https://example.supabase.co/auth/v1/**', async (route) => {
     const pathname = new URL(route.request().url()).pathname;
-    if (pathname.endsWith('/signup'))
-      return route.fulfill({ json: { user: host, session: null } });
+    if (pathname.endsWith('/signup')) return route.fulfill({ json: { user: host, session: null } });
     if (pathname.endsWith('/resend')) {
       resent = true;
       return route.fulfill({ json: {} });
