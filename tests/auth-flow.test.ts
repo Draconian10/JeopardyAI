@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { hostConfirmationRedirect, hostPasswordRecoveryRedirect, isHostPlayerConflict } from '@/lib/auth-flow';
+import {
+  hostConfirmationRedirect,
+  hostPasswordRecoveryRedirect,
+  isHostPlayerConflict,
+} from '@/lib/auth-flow';
 
 describe('host email confirmation redirect', () => {
   it('returns to the host page on the current production origin', () => {
@@ -17,7 +21,9 @@ describe('host email confirmation redirect', () => {
 
 describe('host password reset redirect', () => {
   it('returns to the public game domain instead of a private preview', () => {
-    expect(hostPasswordRecoveryRedirect('https://preview.vercel.app', 'https://game.example')).toBe('https://game.example/host?reset=1');
+    expect(hostPasswordRecoveryRedirect('https://preview.vercel.app', 'https://game.example')).toBe(
+      'https://game.example/host?reset=1',
+    );
   });
 });
 
