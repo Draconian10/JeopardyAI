@@ -17,7 +17,9 @@ export default function RecoveryCode({ sessionId }: { sessionId: string }) {
       </p>
       {code && (
         <>
-          <p className="recovery-code" aria-label="Your recovery code">{code}</p>
+          <p className="recovery-code" aria-label="Your recovery code">
+            {code}
+          </p>
           <p className="muted small">
             Valid until {new Date(expiresAt).toLocaleString()} or until your seat is recovered.
             Anyone with this code can request your seat; keep it private.
@@ -47,7 +49,8 @@ export default function RecoveryCode({ sessionId }: { sessionId: string }) {
           setError('');
           try {
             const result = await api<{ code: string; expiresAt: string }>(
-              `sessions/${sessionId}/recovery-code`, 'POST',
+              `sessions/${sessionId}/recovery-code`,
+              'POST',
             );
             setCode(result.code);
             setExpiresAt(result.expiresAt);
@@ -61,7 +64,11 @@ export default function RecoveryCode({ sessionId }: { sessionId: string }) {
       >
         {busy ? 'Generating…' : code ? 'Replace recovery code' : 'Generate recovery code'}
       </button>
-      {error && <p role="alert" className="error">{error}</p>}
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
     </details>
   );
 }
