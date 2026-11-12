@@ -18,7 +18,8 @@ export default function RecoveryRequests({
       const result = await api<{ requests: Request[] }>(
         `sessions/${sessionId}/recovery-requests`,
       );
-      setRequests(result.requests);
+      setRequests(Array.isArray(result.requests) ? result.requests : []);
+      setError('');
     } catch {
       setError('Could not check player recovery requests.');
     }
