@@ -3005,6 +3005,26 @@ input[type='checkbox'] {
 .recovery-panel .button + .button {
   margin-top: 12px;
 }
+.player-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 14px;
+}
+.player-recovery .player-recovery-actions > .button {
+  flex: 1 1 160px;
+  min-width: 0;
+  margin: 0;
+}
+@media (max-width: 600px) {
+  .player-recovery-actions {
+    flex-direction: column;
+  }
+  .player-recovery .player-recovery-actions > .button {
+    flex: 0 0 auto;
+    width: 100%;
+  }
+}
 .recovery-code {
   display: block;
   padding: 12px;
