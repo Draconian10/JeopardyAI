@@ -205,6 +205,35 @@ describe('atomic player-seat recovery across fifteen players', () => {
     expect(second.rows[0].r.status).toBe(409);
   });
 
+  it('rotating a player code invalidates claims made using its predecessor', async () => {
+    const candidate = players[1];
+    const another = crypto.randomUUID();
+    await pg.query('insert into auth.users values($1)', [another]);
+    const claim = crypto.randomUUID();
+    await pg.query(
+      "insert into public.session_player_recovery_requests(id,session_id,player_id,claimant_id,expires_at) values($1,$2,$3,$4,now()+interval '10 minutes')",
+      [claim, session.id, candidate, another],
+    );
+    const result = await pg.query<{ ok: boolean }>(
+      "select public.rotate_player_recovery_code($1,$2,$3,now()+interval '12 hours') ok",
+      [session.id, candidate, 'b'.repeat(64)],
+    );
+    expect(result.rows[0].ok).toBe(true);
+    const requests = await pg.query<{ status: string }>(
+      'select status from public.session_player_recovery_requests where id=$1', [claim],
+    );
+    expect(requests.rows[0].status).toBe('rejected');
+    const token = await pg.query<{ code_hash: string }>(
+      'select code_hash from public.session_player_recovery_codes where session_id=$1 and player_id=$2',
+      [session.id, candidate],
+    );
+    expect(token.rows[0].code_hash).toBe('b'.repeat(64));
+    const res = await pg.query<{ r: { state: Session } }>(
+      'select public.read_session_runtime($1) r', [session.id],
+    );
+    expect(res.rows[0].r.state.players).toHaveLength(15);
+  });
+
   it('keeps new private tables inaccessible to ordinary authenticated clients', async () => {
     await pg.exec('set role authenticated');
     try {
