@@ -4,12 +4,14 @@ import { useRouter } from 'next/navigation';
 import { ArrowRight, Zap, Users } from 'lucide-react';
 import { api, configured, supabase } from '@/lib/client';
 import { SetupNotice } from './auth';
+import { isHostPlayerConflict } from '@/lib/auth-flow';
 import PlayerGames from './player-games';
 export default function Join() {
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [hostConflict, setHostConflict] = useState(false);
   const router = useRouter();
   useEffect(() => {
     const incoming = new URLSearchParams(window.location.search).get('code');
@@ -42,6 +44,7 @@ export default function Join() {
             e.preventDefault();
             setBusy(true);
             setError('');
+            setHostConflict(false);
             try {
               const { data } = await supabase().auth.getSession();
               if (!data.session) {
@@ -51,7 +54,12 @@ export default function Join() {
               const result = await api<{ id: string }>('join', 'POST', { code, name });
               router.push(`/play/${result.id}`);
             } catch (e) {
-              setError((e as Error).message);
+              if (isHostPlayerConflict(e)) {
+                setHostConflict(true);
+                setError('This browser is signed in as the game host. Switch to a separate player identity to join. Your other device will stay signed in.');
+              } else {
+                setError((e as Error).message);
+              }
             } finally {
               setBusy(false);
             }
@@ -85,6 +93,32 @@ export default function Join() {
           <p className="error" role="alert">
             {error}
           </p>
+          {hostConflict && (
+            <button
+              type="button"
+              className="button primary full"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                setError('');
+                try {
+                  const signedOut = await supabase().auth.signOut({ scope: 'local' });
+                  if (signedOut.error) throw signedOut.error;
+                  const guest = await supabase().auth.signInAnonymously();
+                  if (guest.error) throw guest.error;
+                  const result = await api<{ id: string }>('join', 'POST', { code, name });
+                  router.push(`/play/${result.id}`);
+                } catch (e) {
+                  setError((e as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              Continue as Player
+              <ArrowRight size={18} />
+            </button>
+          )}
           <button className="button primary full" disabled={busy}>
             {busy ? 'Finding your seat…' : 'Join the game'}
             <ArrowRight size={18} />
