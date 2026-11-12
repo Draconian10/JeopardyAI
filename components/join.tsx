@@ -56,7 +56,9 @@ export default function Join() {
             } catch (e) {
               if (isHostPlayerConflict(e)) {
                 setHostConflict(true);
-                setError('This browser is signed in as the game host. Switch to a separate player identity to join. Your other device will stay signed in.');
+                setError(
+                  'This browser is signed in as the game host. Switch to a separate player identity to join. Your other device will stay signed in.',
+                );
               } else {
                 setError((e as Error).message);
               }
