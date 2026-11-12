@@ -2172,6 +2172,24 @@ test('player can generate a private recovery code from the live game screen', as
   await page.getByText('Save a player recovery code').click();
   await page.getByRole('button', { name: 'Generate recovery code' }).click();
   await expect(page.getByLabel('Your recovery code')).toHaveText(code);
+  const copy = recovery.getByRole('button', { name: 'Copy code' });
+  const replace = recovery.getByRole('button', { name: 'Replace recovery code' });
+  await expect(copy).toBeVisible();
+  await expect(replace).toBeVisible();
+  const copyBounds = await copy.boundingBox();
+  const replaceBounds = await replace.boundingBox();
+  expect(copyBounds).not.toBeNull();
+  expect(replaceBounds).not.toBeNull();
+  // The buttons must never overlap or touch, including the mobile layout.
+  const horizontalGap = replaceBounds!.x - (copyBounds!.x + copyBounds!.width);
+  const verticalGap = replaceBounds!.y - (copyBounds!.y + copyBounds!.height);
+  expect(horizontalGap >= 10 || verticalGap >= 10).toBe(true);
+  const isMobile = (page.viewportSize()?.width ?? 1280) <= 600;
+  if (isMobile) {
+    expect(verticalGap).toBeGreaterThanOrEqual(10);
+    expect(Math.abs(copyBounds!.x - replaceBounds!.x)).toBeLessThan(2);
+    expect(Math.abs(copyBounds!.width - replaceBounds!.width)).toBeLessThan(2);
+  }
   expect(generated).toBe(1);
 });
 
