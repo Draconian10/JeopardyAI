@@ -2099,9 +2099,9 @@ test('audience controls retain their original layout and reuse the private displ
 
   await lobby.getByLabel('Audience display options').click();
   await lobby.getByRole('button', { name: 'Copy display link' }).click();
-  await expect.poll(() =>
-    page.evaluate(() => sessionStorage.getItem('test:copied-audience-link')),
-  ).toContain(`/display/${s.id}?token=${tokens[0]}`);
+  await expect
+    .poll(() => page.evaluate(() => sessionStorage.getItem('test:copied-audience-link')))
+    .toContain(`/display/${s.id}?token=${tokens[0]}`);
   expect(issued).toBe(1);
   const firstPopup = page.waitForEvent('popup');
   await openLobby.click();
