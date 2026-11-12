@@ -2,12 +2,20 @@ import { test, expect } from '@playwright/test';
 import { createSession, viewSession } from '../../lib/game/engine';
 import { starterBoard } from '../../lib/game/starter';
 
-test('private audience link displays a sanitized board without a Supabase login', async ({ page }) => {
+test('private audience link displays a sanitized board without a Supabase login', async ({
+  page,
+}) => {
   const host = crypto.randomUUID();
   const s = createSession(starterBoard(), crypto.randomUUID(), host, '217654', Date.now());
-  s.players = [{
-    id: crypto.randomUUID(), name: 'Ada', score: 1200, lastSeen: Date.now(), removed: false,
-  }];
+  s.players = [
+    {
+      id: crypto.randomUUID(),
+      name: 'Ada',
+      score: 1200,
+      lastSeen: Date.now(),
+      removed: false,
+    },
+  ];
   s.phase = 'question';
   s.questionId = s.board.questions[0].id;
   s.deadline = Date.now() + 30_000;
