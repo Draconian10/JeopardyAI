@@ -84,3 +84,7 @@ STRESS_OUTPUT_DIR=test-results/full-game npm run test:stress -- -t "complete 15-
 ```
 
 No Supabase credentials or fifteen physical devices are required for this local scenario. A deployed-cloud test with independent browser sessions, real Auth/Realtime connections and representative network latency remains a separate acceptance check. The earlier live connection and practice-buzzer observations do not certify live Final submission, browser delivery or long-running reliability.
+
+## Recovery and audience access rollout
+
+Migration `005_player_recovery_display.sql` adds private token and recovery request tables and a short, single-transaction player transfer. It does not change the existing buzzer arbitration, host lease, or Final draft write path. Recovery approvals lock one session aggregate and are rare administrative operations; audience snapshots use read-only versioned projections with 2.5-second fallback polling and no persistent WebSocket requirement. The existing 15-player API/SQL simulations remain relevant; test any deployment with 15 independent real client identities and a separate audience screen before claiming cloud capacity. Keep the production HMAC secret stable across deploys.
