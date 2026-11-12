@@ -386,16 +386,13 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
           throw new GameError('Only a joined player can create a recovery code.', 403);
         const code = guestSecret(18);
         const expiresAt = new Date(Date.now() + 12 * 60 * 60_000).toISOString();
-        const { error } = await database.from('session_player_recovery_codes').upsert(
-          {
-            session_id: id,
-            player_id: user.id,
-            code_hash: guestSecretHash('recovery', id, code),
-            expires_at: expiresAt,
-          },
-          { onConflict: 'session_id,player_id' },
-        );
-        if (error) throw new GameError('Could not create a recovery code.', 503);
+        const { data: rotated, error } = await database.rpc('rotate_player_recovery_code', {
+          p_session: id,
+          p_player: user.id,
+          p_hash: guestSecretHash('recovery', id, code),
+          p_expires: expiresAt,
+        });
+        if (error || !rotated) throw new GameError('Could not create a recovery code.', 503);
         return NextResponse.json({ code, expiresAt });
       }
       if (req.method === 'POST' && op === 'display-link') {
