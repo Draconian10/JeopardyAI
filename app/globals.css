@@ -2990,6 +2990,18 @@ input[type='checkbox'] {
   cursor: pointer;
   font-weight: 750;
 }
+.player-recovery {
+  margin: 18px 0 0;
+  padding: 14px 18px;
+}
+.player-recovery > summary {
+  font-size: 12px;
+  color: #59667b;
+  line-height: 1.5;
+}
+.player-recovery[open] > summary {
+  margin-bottom: 14px;
+}
 .recovery-panel .button + .button {
   margin-top: 12px;
 }

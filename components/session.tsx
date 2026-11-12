@@ -337,7 +337,6 @@ function SessionInner({
       <p role="alert" className="error">
         {error}
       </p>
-      {player && me && !ended && <RecoveryCode sessionId={id} />}
       {host && !ended && <RecoveryRequests sessionId={id} onApproved={refresh} />}
       {host && !control && !ended && (
         <div className="panel control-claim">
@@ -1092,6 +1091,7 @@ function SessionInner({
           )}
         </div>
       )}
+      {player && me && !ended && <RecoveryCode sessionId={id} />}
       {control && s.phase === 'lobby' && (
         <div className="lobby-end">
           <DisplayAccess sessionId={id} placement="lobby" />

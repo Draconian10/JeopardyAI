@@ -2064,7 +2064,7 @@ test('unapplied JSON recovery follows a newly saved board instead of staying und
   await expect(page.getByLabel(/Host PIN/)).toHaveValue('');
 });
 
-test('audience controls retain their original layout and reuse the private display link', async ({
+test('audience opens like the original link and options dismiss outside or on Escape', async ({
   page,
 }) => {
   const s = fixture();
@@ -2091,50 +2091,63 @@ test('audience controls retain their original layout and reuse the private displ
   });
   await claimHost(page, s);
   const lobby = page.locator('.lobby-end');
-  const openLobby = lobby.getByRole('button', { name: 'Open audience display' });
-  await expect(openLobby).toBeVisible();
+  const openLobby = lobby.getByRole('link', { name: 'Open audience display' });
+  const menu = lobby.locator('.display-options');
+  await expect(openLobby).toHaveAttribute('href', `/display/${s.id}`);
   await expect(openLobby).toHaveClass(/text-button/);
-  await expect(lobby.getByRole('button', { name: 'Create audience display link' })).toHaveCount(0);
-  await expect(page.getByText(/Read-only link; works on a TV or projector/)).toHaveCount(0);
+  await expect(page.getByText(/Allow popups to open the display/)).toHaveCount(0);
 
+  await lobby.getByLabel('Audience display options').click();
+  await expect(menu).toHaveAttribute('open', '');
+  await page.locator('.live-heading h1').click();
+  await expect(menu).not.toHaveAttribute('open', '');
+
+  await lobby.getByLabel('Audience display options').click();
+  await expect(menu).toHaveAttribute('open', '');
+  await page.keyboard.press('Escape');
+  await expect(menu).not.toHaveAttribute('open', '');
+
+  const firstPopup = page.waitForEvent('popup');
+  await openLobby.click();
+  const firstDisplay = await firstPopup;
+  await firstDisplay.waitForURL((url) => url.pathname === `/display/${s.id}`);
+  expect(new URL(firstDisplay.url()).searchParams.has('token')).toBe(false);
+  expect(issued).toBe(0); // Same-browser view needs no new token or popup-script call.
+  await firstDisplay.close();
+
+  // Independent devices still use an expiring, restricted link via the overflow menu.
   await lobby.getByLabel('Audience display options').click();
   await lobby.getByRole('button', { name: 'Copy display link' }).click();
   await expect
     .poll(() => page.evaluate(() => sessionStorage.getItem('test:copied-audience-link')))
     .toContain(`/display/${s.id}?token=${tokens[0]}`);
   expect(issued).toBe(1);
-  const firstPopup = page.waitForEvent('popup');
-  await openLobby.click();
-  const firstDisplay = await firstPopup;
-  await firstDisplay.waitForURL((url) => url.searchParams.get('token') === tokens[0]);
-  expect(issued).toBe(1);
-  await firstDisplay.close();
 
-  // The lobby and main board mount different control instances: neither should rotate
-  // the existing display's token when a host switches between them.
   await page.getByRole('button', { name: 'Start Jeopardy' }).click();
   const sidebar = page.locator('.host-tools');
-  const openSidebar = sidebar.getByRole('button', { name: 'Audience display', exact: true });
-  await expect(openSidebar).toBeVisible();
+  const openSidebar = sidebar.getByRole('link', { name: 'Audience display', exact: true });
+  await expect(openSidebar).toHaveAttribute('href', `/display/${s.id}`);
   await expect(openSidebar).toHaveClass(/button secondary full/);
-  const secondPopup = page.waitForEvent('popup');
+  const sidebarPopup = page.waitForEvent('popup');
   await openSidebar.click();
-  const secondDisplay = await secondPopup;
-  await secondDisplay.waitForURL((url) => url.searchParams.get('token') === tokens[0]);
+  const secondDisplay = await sidebarPopup;
+  await secondDisplay.waitForURL((url) => url.pathname === `/display/${s.id}`);
   expect(issued).toBe(1);
   await secondDisplay.close();
 
-  // Revoke only via the explicitly named action and verify the next open uses the new token.
+  // Changing views does not invalidate an independent audience link.
+  await sidebar.getByLabel('Audience display options').click();
+  await sidebar.getByRole('button', { name: 'Copy display link' }).click();
+  expect(issued).toBe(1);
   await sidebar.getByLabel('Audience display options').click();
   page.once('dialog', (dialog) => dialog.accept());
   await sidebar.getByRole('button', { name: 'Replace link' }).click();
   await expect.poll(() => issued).toBe(2);
-  const thirdPopup = page.waitForEvent('popup');
-  await openSidebar.click();
-  const thirdDisplay = await thirdPopup;
-  await thirdDisplay.waitForURL((url) => url.searchParams.get('token') === tokens[1]);
-  expect(issued).toBe(2);
-  await thirdDisplay.close();
+  await sidebar.getByLabel('Audience display options').click();
+  await sidebar.getByRole('button', { name: 'Copy display link' }).click();
+  await expect
+    .poll(() => page.evaluate(() => sessionStorage.getItem('test:copied-audience-link')))
+    .toContain(`/display/${s.id}?token=${tokens[1]}`);
 });
 
 test('player can generate a private recovery code from the live game screen', async ({ page }) => {
@@ -2148,11 +2161,38 @@ test('player can generate a private recovery code from the live game screen', as
       json: { code, expiresAt: new Date(Date.now() + 12 * 60 * 60_000).toISOString() },
     });
   });
+  s.phase = 'board';
   await page.goto(`/play/${s.id}`);
+  await expect(page.locator('.player-wait')).toBeVisible();
+  const recovery = page.locator('.player-recovery');
+  await expect(recovery).toBeVisible();
+  const waitBounds = await page.locator('.player-wait').boundingBox();
+  const recoveryBounds = await recovery.boundingBox();
+  expect(recoveryBounds!.y).toBeGreaterThan(waitBounds!.y + waitBounds!.height);
   await page.getByText('Save a player recovery code').click();
   await page.getByRole('button', { name: 'Generate recovery code' }).click();
   await expect(page.getByLabel('Your recovery code')).toHaveText(code);
   expect(generated).toBe(1);
+});
+
+test('player recovery control stays below the buzzer even during a live question', async ({
+  page,
+}) => {
+  const s = fixture();
+  s.phase = 'question';
+  s.questionId = s.board.questions[0].id;
+  s.deadline = Date.now() + 30_000;
+  s.remaining = 30_000;
+  await mock(page, s, PLAYER);
+  await page.goto(`/play/${s.id}`);
+  const buzzer = page.locator('.buzzer-section');
+  const recovery = page.locator('.player-recovery');
+  await expect(buzzer).toBeVisible();
+  await expect(recovery).toBeVisible();
+  const buzzerBounds = await buzzer.boundingBox();
+  const recoveryBounds = await recovery.boundingBox();
+  expect(recoveryBounds!.y).toBeGreaterThan(buzzerBounds!.y + buzzerBounds!.height);
+  await expect(recovery).not.toHaveAttribute('open', '');
 });
 
 test('host approval UI authorizes one recovery request and removes it from the queue', async ({
