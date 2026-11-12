@@ -73,8 +73,8 @@ export function HostAuth({ children }: { children: (user: User) => React.ReactNo
         <>
           <h1>Check your inbox.</h1>
           <p role="status">
-            We sent a confirmation link to <strong>{pendingEmail}</strong>. Open the link to
-            verify your email, then come back and sign in to host.
+            We sent a confirmation link to <strong>{pendingEmail}</strong>. Open the link to verify
+            your email, then come back and sign in to host.
           </p>
           <p className="muted">
             If you don't see it, check your spam folder. You don't need a Vercel account.
