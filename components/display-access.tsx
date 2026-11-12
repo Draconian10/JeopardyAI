@@ -1,5 +1,6 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { Copy, Monitor, MoreHorizontal, RefreshCw } from 'lucide-react';
 import { api } from '@/lib/client';
 
@@ -54,6 +55,25 @@ export default function DisplayAccess({
     }
   }, [sessionId, storageKey]);
 
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      if (menuRef.current?.open && !menuRef.current.contains(event.target as Node))
+        menuRef.current.open = false;
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && menuRef.current?.open) {
+        menuRef.current.open = false;
+        menuRef.current.querySelector('summary')?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, []);
+
   const getLink = useCallback(
     async (replace = false): Promise<StoredLink> => {
       if (!replace && stored.current && validStoredLink(stored.current, sessionId))
@@ -92,29 +112,6 @@ export default function DisplayAccess({
     [sessionId, storageKey],
   );
 
-  const openDisplay = async () => {
-    // Reserve the tab directly from the click so popup blockers do not reject the
-    // asynchronous Supabase request. Reuse the same link; opening again must NOT
-    // invalidate a projector that is already displaying the game.
-    const tab = window.open('about:blank', '_blank');
-    if (!tab) {
-      setError('Allow popups to open the display, or use the link options to copy it.');
-      return;
-    }
-    tab.opener = null;
-    setBusy(true);
-    setError('');
-    try {
-      const link = await getLink();
-      tab.location.replace(link.url);
-    } catch (cause) {
-      tab.close();
-      setError((cause as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const copyDisplay = async () => {
     setBusy(true);
     setError('');
@@ -151,19 +148,16 @@ export default function DisplayAccess({
 
   return (
     <div className={`display-access display-access--${placement}`}>
-      <button
-        type="button"
+      <Link
+        href={`/display/${sessionId}`}
+        target="_blank"
+        rel="noopener noreferrer"
         className={placement === 'lobby' ? 'text-button' : 'button secondary full'}
-        disabled={busy}
-        onClick={() => void openDisplay()}
+        onClick={() => setError('')}
       >
         <Monitor size={16} />
-        {busy
-          ? 'Opening display…'
-          : placement === 'lobby'
-            ? 'Open audience display'
-            : 'Audience display'}
-      </button>
+        {placement === 'lobby' ? 'Open audience display' : 'Audience display'}
+      </Link>
       <details className="display-options" ref={menuRef}>
         <summary aria-label="Audience display options" title="Audience display options">
           <MoreHorizontal size={18} aria-hidden="true" />
