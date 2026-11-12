@@ -29,9 +29,9 @@ A responsive, self-hostable Jeopardy game for **Next.js + Vercel + Supabase**. T
 1. Create a Supabase project. Choose a region near the players; use the closest Vercel function region as well.
 2. Open **SQL Editor**, paste the contents of [`supabase/migrations/001_initial.sql`](supabase/migrations/001_initial.sql), and run it **once**, then apply [`002_question_json.sql`](supabase/migrations/002_question_json.sql), [`003_saved_tiebreakers.sql`](supabase/migrations/003_saved_tiebreakers.sql), and [`004_scalable_runtime.sql`](supabase/migrations/004_scalable_runtime.sql). For an existing installation, run only unapplied migrations in order. Alternatively, use the Supabase CLI migration workflow.
 3. Under **Authentication → Providers**, enable **Email** and **Anonymous Sign-Ins**. Anonymous users are players; hosts use email/password accounts.
-4. Under **Authentication → URL Configuration**, set the Site URL to your Vercel production URL. Add your local URL (`http://localhost:3000`) and any preview URLs you intentionally use to the redirect allowlist.
+4. Under **Authentication → URL Configuration**, set the Site URL to your **public** production URL. Allowlist the exact confirmation destination, `https://YOUR_PUBLIC_GAME_DOMAIN/host?confirmed=1` (or `https://YOUR_PUBLIC_GAME_DOMAIN/**`), plus `http://localhost:3000/**` for local testing and any preview URLs you intentionally use. Set `NEXT_PUBLIC_SITE_URL` to the same public production origin when signing up from preview deployments; otherwise the app uses the current browser origin.
 5. Under **Realtime Settings**, disable **Allow public access**, so channels must be private. The migration installs the channel authorization policy. No Postgres Changes publication is required.
-6. Keep email confirmation enabled for deployed host accounts. Configure email delivery as needed. The app tells new hosts to confirm their email before signing in. For local development only, you can disable confirmation in your separate development project.
+6. Keep email confirmation enabled for deployed host accounts. Configure email delivery as needed. The app shows a confirmation-pending screen, and email links return to `/host`. Once confirmed, hosts can sign in normally. For local development only, you can disable confirmation in your separate development project.
 7. Copy your **Project URL**, **anon public key**, and **service_role key**. Never place the service-role key in a `NEXT_PUBLIC_` variable.
 
 The application uses these tables: `games`, `sessions`, `session_members`, `rate_limits`, `session_presence`, `session_final_drafts`, and `session_final_receipts`. Browsers cannot directly read private board/session JSON or execute privileged mutation functions.
@@ -60,13 +60,13 @@ npm run dev
 
 Open `http://localhost:3000`. Create a host account, confirm your email, then select **Create new board**. For a quick start, select **Load starter board**, set a six-digit host PIN, and save. Return to **Your boards** to start a session.
 
-Use a separate browser profile/private window or a phone for each player. A host account cannot join its own session as a player. Keep the guest browser's site data to preserve that player's identity and reconnection ability.
+Use a separate browser profile/private window or a phone for each player. A host account cannot join its own session as a player. If you are signed into the host account on the player device, the Join page offers **Continue as Player**: it signs out only that device, creates a guest identity, and joins the game without signing the host out of their other device. Keep the guest browser's site data to preserve that player's identity and reconnection ability.
 
 ## 3. Deploy on Vercel
 
 1. Import this repository into Vercel. Framework preset: **Next.js**. Repository root is the project root; no custom output directory or build command is needed.
 2. Choose Node.js 22 and configure the four variables above for Production. Public variables must be present **at build time**.
-3. Deploy, then set the Supabase Site URL/redirect allowlist to your actual deployment URL.
+3. Deploy to a **publicly accessible production domain**, then set the Supabase Site URL, redirect allowlist, and `NEXT_PUBLIC_SITE_URL` to that public URL. Check **Vercel Project → Settings → Deployment Protection**: users should not have to sign into Vercel or request project access to follow an email confirmation link. You may keep non-production preview deployments protected. If changing a public Next.js environment variable, redeploy so it is included in the client build.
 4. Use a **separate Supabase project for previews/development**. A preview using production credentials can modify production games.
 5. Sign in, start a session, and join from a second device. Verify buzz arbitration and close/reopen the host tab before your first real game night.
 
