@@ -39,45 +39,79 @@ beforeAll(async () => {
 
   session = createSession(starterBoard(), GAME, HOST, '719283', Date.now(), crypto.randomUUID());
   session.players = players.map((id, i) => ({
-    id, name: `Player ${i + 1}`, score: 1000 + i * 100, lastSeen: Date.now(), removed: false,
+    id,
+    name: `Player ${i + 1}`,
+    score: 1000 + i * 100,
+    lastSeen: Date.now(),
+    removed: false,
   }));
   session.phase = 'finalAnswer';
   session.deadline = Date.now() + 120_000;
-  session.final = Object.fromEntries(players.map((id) => [id, {
-    score: 1000, wager: 200, text: '',
-  }]));
+  session.final = Object.fromEntries(
+    players.map((id) => [
+      id,
+      {
+        score: 1000,
+        wager: 200,
+        text: '',
+      },
+    ]),
+  );
   session.final[oldId].text = 'Old snapshot';
   session.respondent = oldId;
   session.nextSelectorId = oldId;
   session.attempted = [oldId];
   session.daily = { playerId: oldId, amount: 200, submitted: true };
-  session.events = [{
-    id: crypto.randomUUID(), questionId: session.board.questions[0].id, playerId: oldId,
-    delta: 200, reason: 'correct', at: Date.now(),
-  }];
-  session.history = [{
-    actionId: crypto.randomUUID(), userId: oldId, type: 'buzz',
-    at: Date.now(), phase: 'question',
-  }];
-  session.undoStack = [{
-    questionId: session.board.questions[0].id, phase: 'answering',
-    respondent: oldId, attempted: [oldId], remaining: 1000, used: [],
-    eventsLength: 1, nextSelectorId: oldId,
-    scores: { [oldId]: 1000 },
-  }];
+  session.events = [
+    {
+      id: crypto.randomUUID(),
+      questionId: session.board.questions[0].id,
+      playerId: oldId,
+      delta: 200,
+      reason: 'correct',
+      at: Date.now(),
+    },
+  ];
+  session.history = [
+    {
+      actionId: crypto.randomUUID(),
+      userId: oldId,
+      type: 'buzz',
+      at: Date.now(),
+      phase: 'question',
+    },
+  ];
+  session.undoStack = [
+    {
+      questionId: session.board.questions[0].id,
+      phase: 'answering',
+      respondent: oldId,
+      attempted: [oldId],
+      remaining: 1000,
+      used: [],
+      eventsLength: 1,
+      nextSelectorId: oldId,
+      scores: { [oldId]: 1000 },
+    },
+  ];
   await pg.query('insert into public.games(id,owner_id,board,pin_hash) values($1,$2,$3,$4)', [
-    GAME, HOST, JSON.stringify(starterBoard()), 'pin',
+    GAME,
+    HOST,
+    JSON.stringify(starterBoard()),
+    'pin',
   ]);
   await pg.query(
     'insert into public.sessions(id,game_id,host_id,join_code,state,pin_hash) values($1,$2,$3,$4,$5,$6)',
     [session.id, GAME, HOST, session.joinCode, JSON.stringify(session), 'pin'],
   );
   await pg.query('insert into public.session_members(session_id,user_id) values($1,$2)', [
-    session.id, HOST,
+    session.id,
+    HOST,
   ]);
   for (const id of players)
     await pg.query('insert into public.session_members(session_id,user_id) values($1,$2)', [
-      session.id, id,
+      session.id,
+      id,
     ]);
   await pg.query(
     'insert into public.session_presence(session_id,user_id,last_seen_ms) values($1,$2,$3)',
@@ -96,11 +130,11 @@ beforeAll(async () => {
     [session.id, oldId, crypto.randomUUID(), 3, Date.now()],
   );
   await pg.query(
-    'insert into public.session_player_recovery_codes(session_id,player_id,code_hash,expires_at) values($1,$2,$3,now()+interval \'12 hours\')',
+    "insert into public.session_player_recovery_codes(session_id,player_id,code_hash,expires_at) values($1,$2,$3,now()+interval '12 hours')",
     [session.id, oldId, 'a'.repeat(64)],
   );
   await pg.query(
-    'insert into public.session_player_recovery_requests(id,session_id,player_id,claimant_id,expires_at) values($1,$2,$3,$4,now()+interval \'10 minutes\')',
+    "insert into public.session_player_recovery_requests(id,session_id,player_id,claimant_id,expires_at) values($1,$2,$3,$4,now()+interval '10 minutes')",
     [requestId, session.id, oldId, CLAIMANT],
   );
 }, 30000);
@@ -123,7 +157,8 @@ describe('atomic player-seat recovery across fifteen players', () => {
     );
     expect(result.rows[0].r.approved).toBe(true);
     const res = await pg.query<{ r: { state: Session } }>(
-      'select public.read_session_runtime($1) r', [session.id],
+      'select public.read_session_runtime($1) r',
+      [session.id],
     );
     const s = res.rows[0].r.state;
     expect(s.players).toHaveLength(15);
@@ -147,21 +182,25 @@ describe('atomic player-seat recovery across fifteen players', () => {
     expect(member.rows.some((m) => m.user_id === oldId)).toBe(false);
     expect(member.rows.some((m) => m.user_id === CLAIMANT)).toBe(true);
     const drafts = await pg.query(
-      'select user_id from public.session_final_drafts where session_id=$1', [session.id],
+      'select user_id from public.session_final_drafts where session_id=$1',
+      [session.id],
     );
     expect(drafts.rows).toEqual([{ user_id: CLAIMANT }]);
     const receipts = await pg.query(
-      'select user_id from public.session_final_receipts where session_id=$1', [session.id],
+      'select user_id from public.session_final_receipts where session_id=$1',
+      [session.id],
     );
     expect(receipts.rows).toEqual([{ user_id: CLAIMANT }]);
     const codes = await pg.query(
-      'select * from public.session_player_recovery_codes where session_id=$1', [session.id],
+      'select * from public.session_player_recovery_codes where session_id=$1',
+      [session.id],
     );
     expect(codes.rows).toHaveLength(0);
     const v = viewSession(s, CLAIMANT, Date.now());
     expect(v.finalEntries[CLAIMANT].text).toBe('Recovered final response');
     const second = await pg.query<{ r: { status: number } }>(
-      'select public.approve_player_recovery($1,$2,$3) r', [session.id, HOST, requestId],
+      'select public.approve_player_recovery($1,$2,$3) r',
+      [session.id, HOST, requestId],
     );
     expect(second.rows[0].r.status).toBe(409);
   });
@@ -170,7 +209,8 @@ describe('atomic player-seat recovery across fifteen players', () => {
     await pg.exec('set role authenticated');
     try {
       for (const table of [
-        'session_player_recovery_codes', 'session_player_recovery_requests',
+        'session_player_recovery_codes',
+        'session_player_recovery_requests',
         'session_display_links',
       ])
         await expect(pg.query(`select * from public.${table}`)).rejects.toThrow();
