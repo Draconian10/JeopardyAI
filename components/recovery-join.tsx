@@ -23,9 +23,7 @@ export default function RecoveryJoin({ initialCode }: { initialCode: string }) {
       if (inFlight) return;
       inFlight = true;
       try {
-        const result = await api<{ status: string; sessionId?: string }>(
-          `recovery/${requestId}`,
-        );
+        const result = await api<{ status: string; sessionId?: string }>(`recovery/${requestId}`);
         if (!active) return;
         setStatus(result.status);
         if (result.status === 'approved' && result.sessionId)
@@ -52,8 +50,8 @@ export default function RecoveryJoin({ initialCode }: { initialCode: string }) {
       {open && (
         <>
           <p className="muted small">
-            Enter your game code and the private recovery code you saved earlier. Your host
-            must approve the transfer before your score and responses return.
+            Enter your game code and the private recovery code you saved earlier. Your host must
+            approve the transfer before your score and responses return.
           </p>
           {requestId ? (
             <p role="status">
@@ -82,7 +80,8 @@ export default function RecoveryJoin({ initialCode }: { initialCode: string }) {
                     if (guest.error) throw guest.error;
                   }
                   const result = await api<{ requestId: string }>('recovery/request', 'POST', {
-                    code, recoveryCode: recoveryCode.trim(),
+                    code,
+                    recoveryCode: recoveryCode.trim(),
                   });
                   setRequestId(result.requestId);
                   setStatus('pending');
@@ -120,7 +119,11 @@ export default function RecoveryJoin({ initialCode }: { initialCode: string }) {
               </button>
             </form>
           )}
-          {error && <p className="error" role="alert">{error}</p>}
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          )}
         </>
       )}
     </section>
