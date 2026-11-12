@@ -10,10 +10,7 @@ describe('host email confirmation redirect', () => {
 
   it('prefers an explicitly configured public URL over the current preview deployment', () => {
     expect(
-      hostConfirmationRedirect(
-        'https://private-preview.vercel.app',
-        'https://jeopardy.example/',
-      ),
+      hostConfirmationRedirect('https://private-preview.vercel.app', 'https://jeopardy.example/'),
     ).toBe('https://jeopardy.example/host?confirmed=1');
   });
 });
