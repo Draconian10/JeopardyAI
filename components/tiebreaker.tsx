@@ -1,5 +1,6 @@
 'use client';
 import { useState, type ReactNode } from 'react';
+import HostResponse from './host-response';
 import { Check, X, Zap } from 'lucide-react';
 import type { SessionView } from '@/lib/game/types';
 import type { Command } from '@/lib/game/schema';
@@ -199,12 +200,7 @@ export default function Tiebreaker({
               )}
             </div>
           )}
-          {host && s.phase !== 'tieReveal' && (
-            <details className="host-answer">
-              <summary>Private correct response</summary>
-              <p>{round?.answer}</p>
-            </details>
-          )}
+          {host && s.phase !== 'tieReveal' && <HostResponse response={round?.answer} />}
           {s.phase === 'tieReveal' && (
             <div className="answer-reveal">
               <small>CORRECT RESPONSE</small>

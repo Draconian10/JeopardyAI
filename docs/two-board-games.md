@@ -40,7 +40,7 @@ Validation requires a rectangle and unique nonblank category names within each i
 
 ## Round transition
 
-Completing the last clue on the first board and choosing **Round standings** enters a durable standings break. All views show the scores; only the controlling host can select **Start Double Jeopardy**. Scores, score history, membership, join code and session ID carry over. The lowest-scoring active player selects first; an equal-score tie uses stable player-ID ordering. The host continues clicking tiles. Correct responses then transfer selection as usual, including Daily Doubles.
+Completing the last clue on the first board and choosing **Round standings** enters a durable standings break. All views show the scores; only the controlling host can select **Start Double Jeopardy**. Scores, score history, membership, join code and session ID carry over. The lowest-scoring active player selects first; a tie for lowest score is resolved by a uniform server-side random choice among those tied players. The accepted choice is saved and is not rerolled by refresh, takeover, Resume/Continue or a replayed request. The host continues clicking tiles. Correct responses then transfer selection as usual, including Daily Doubles.
 
 The second board uses the existing tile/clue/buzzer/response/undo layouts. First-round tiles cannot be selected again. The new round and the break survive host closure, takeover and Resume/Continue. Only completing the second board starts Final wagering, using the scores at that point. No unrevealed second-board clue or response is sent to players or audience.
 

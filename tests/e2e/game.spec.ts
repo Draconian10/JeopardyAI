@@ -2421,3 +2421,98 @@ test('Final correction updates the confirmation from a unique winner to sudden d
   expect(current().tiebreaker?.playerIds).toEqual([PLAYER, TIED_OTHER]);
   await expect(page.locator('.final-corrections')).toHaveCount(0);
 });
+
+test('private response card is keyboard accessible and wraps long responses and host notes', async ({
+  page,
+}) => {
+  const s = fixture();
+  s.phase = 'answering';
+  s.questionId = s.board.questions[0].id;
+  s.respondent = PLAYER;
+  s.board.questions[0].answer = 'A sufficiently detailed correct response. '.repeat(8);
+  s.board.questions[0].notes = 'Also accept this alternative. '.repeat(8);
+  await mock(page, s);
+  await openControlledHost(page, s);
+  const card = page.locator('.host-answer');
+  await expect(card.locator('.host-response-text')).not.toBeVisible();
+  await card.locator('summary').focus();
+  await page.keyboard.press('Enter');
+  await expect(card.locator('.host-response-text')).toBeVisible();
+  await expect(card.locator('.host-response-notes')).toContainText('Also accept');
+  await page.keyboard.press('Space');
+  await expect(card.locator('.host-response-text')).not.toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(card.locator('.host-response-text')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+});
+test('Final correct response uses the same private card while judging controls stay available', async ({
+  page,
+}) => {
+  const s = fixture();
+  s.phase = 'finalReview';
+  s.final = { [PLAYER]: { score: 1000, wager: 200, text: 'Submitted answer' } };
+  await mock(page, s);
+  await openControlledHost(page, s);
+  const card = page.locator('.host-answer');
+  await card.locator('summary').click();
+  await expect(card.locator('.host-response-text')).toHaveText(s.board.final.answer);
+  await expect(page.getByRole('button', { name: 'Correct', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Incorrect', exact: true })).toBeEnabled();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+});
+test('Final correction cards show status, wager and signed adjustment without mobile overflow', async ({
+  page,
+}) => {
+  const s = fixture();
+  s.phase = 'finalReview';
+  s.players[0].score = 1200;
+  s.players[0].name = 'A player with a long name';
+  s.players.push({
+    id: TIED_OTHER,
+    name: 'No response',
+    score: 800,
+    lastSeen: Date.now(),
+    removed: false,
+  });
+  s.final = {
+    [PLAYER]: {
+      score: 1000,
+      wager: 200,
+      text: 'An unusually long submitted response '.repeat(12),
+      judged: true,
+      correct: true,
+    },
+    [TIED_OTHER]: { score: 1000, wager: 200, text: '', judged: true, correct: false },
+  };
+  await mock(page, s);
+  await openControlledHost(page, s);
+  const section = page.locator('.final-corrections');
+  await section.locator('summary').click();
+  await expect(section.locator('.judgment-status').first()).toHaveText('Correct');
+  await expect(section.locator('.correction-meta').first()).toContainText('If changed: −$400');
+  await expect(section.getByRole('button', { name: 'Mark correct', exact: true })).toBeDisabled();
+  await expect(section.getByRole('button', { name: 'Mark incorrect', exact: true })).toBeEnabled();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+});
+test('public Final solution keeps its reveal stage and wraps a long correct response', async ({
+  page,
+}) => {
+  const s = fixture();
+  s.phase = 'finalReveal';
+  s.board.final.answer = 'A long final correct response '.repeat(12);
+  s.final = { [PLAYER]: { score: 1000, wager: 200, text: 'Still private' } };
+  await mock(page, s);
+  await page.goto(`/display/${s.id}`);
+  await expect(page.locator('.final-solution-card h2')).toHaveText(s.board.final.answer.trim());
+  await expect(page.getByText('Still private', { exact: true })).toHaveCount(0);
+  await expect(page.locator('.host-answer')).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+});
