@@ -32,6 +32,7 @@ beforeAll(async () => {
     '003_saved_tiebreakers.sql',
     '004_scalable_runtime.sql',
     '005_player_recovery_display.sql',
+    '006_optional_double_jeopardy.sql',
   ])
     await pg.exec(readFileSync(`supabase/migrations/${file}`, 'utf8'));
   for (const id of [HOST, CLAIMANT, ...players])

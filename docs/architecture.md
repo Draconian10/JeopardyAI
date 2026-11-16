@@ -38,7 +38,9 @@ stateDiagram-v2
   DailyWager --> DailyAnswer: Wager locked
   DailyAnswer --> Reveal: Host judgment
   Reveal --> Board: Tiles remain
-  Reveal --> FinalWager: Board complete
+  Reveal --> RoundBreak: First board complete with second board
+  RoundBreak --> Board: Host starts second board
+  Reveal --> FinalWager: Last board complete
   FinalWager --> FinalAnswer: Host locks wagers
   FinalAnswer --> FinalReveal: 30 seconds expire
   FinalReveal --> FinalReview: Host reveals player answers
@@ -75,7 +77,7 @@ Session JSON is intentionally simple and suitable for casual rooms. Presence and
 
 ## Category-based question JSON
 
-The editor can validate pasted JSON through the authenticated `POST /api/games/import` endpoint. Shared schemas enforce a complete rectangular board, bounded values/text, unique category names, one Daily Double, and Final Jeopardy before conversion to internal question IDs. Validation does not write or start a game; applying the returned board uses the existing version-protected save/autosave path.
+The editor can validate pasted JSON through the authenticated `POST /api/games/import` endpoint. Shared schemas enforce a complete rectangular board, bounded values/text, unique category names, one Daily Double on the first board (two on the optional second board), and Final Jeopardy before conversion to internal question IDs. Validation does not write or start a game; applying the returned board uses the existing version-protected save/autosave path.
 
 Migration `002_question_json.sql` adds stored generated `question_json` columns to saved games and sessions. PostgreSQL builds them from the authoritative board in category/row order, automatically backfilling old records and updating the saved representation after every visual edit or duplication. The session representation derives from its frozen session board. This avoids storing conflicting copies of pasted JSON and manually edited questions. Private answer access remains unchanged; the generated columns are not part of player or audience projections.
 
@@ -154,3 +156,9 @@ Heartbeat and answer API responses are narrow receipts, not full snapshots. The 
 Board recovery is a versioned, validated local-storage envelope scoped to host/board and an independent editor-copy UUID. It stores incomplete board content and unapplied JSON, excludes the PIN/auth/controller fields, expires after seven days and retains five recent copies. Restore is explicit and blocks existing-board autosave until manual Save. Server optimistic versions remain authoritative. Successful saves only delete the acknowledged copy and unchanged restored source; guarded deletion preserves another tab's updates. Storage failure cannot prevent normal server saving.
 
 `scripts/live-browser.mjs` is an opt-in real-target runner; it does not use the service role or introduce test endpoints into the application. Its shared browser flow drives actual player/host/audience controls, including fresh host-controller initialization on reopen. The offline fixture injects emulated transport through an explicit fixture callback, while the CLI supplies no callback. Reports retain synthetic test data and timing/status metadata, never auth state or PINs. The offline fixture, local API/SQL integration and real deployment run have deliberately different scopes documented in the host-tools guide.
+
+## Optional rounds and Final corrections (migration 006)
+
+`Board.doubleJeopardy` is an optional strict grid with globally unique clue IDs. Absent `Session.round` means round one for legacy records. `activeBoard` supplies only the current grid for selection, scoring and projections. Used clue IDs and the score ledger span both grids; CSV resolves category/text against the owning grid. Completion tests the active grid's IDs rather than total used count. First-round completion enters durable `roundBreak` only if the optional grid exists. The host/controller/version-guarded `startDouble` transitions exactly once, preserves all scores and events, and selects the lowest active score with stable ID tie ordering. Final entries are created only after the last grid. Unselected second-board content never enters public projections. Migration 006 extends the immutable generated JSON function and backfills only records with a second grid; it changes no access policies or gameplay versions.
+
+`correctFinal` is a strict host/controller/version-guarded command allowed only in `finalReview` for an already-judged nonremoved seat. It applies the signed wager-outcome difference through the existing score/event path, preserving pre-Final score, text, wager and review order. Blank-to-correct is rejected. Action-ID deduplication and CAS/stale-action guards prevent double application. All corrections remain auditable and CSV cumulative totals reflect each delta. `finish` remains the explicit confirmation boundary and recomputes current leaders; no correction is accepted in tie setup, tie play or terminal phases. No browser-side score authority or new timer is introduced.

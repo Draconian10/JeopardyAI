@@ -336,3 +336,66 @@ describe('scalable durable runtime', () => {
     }
   });
 });
+
+it('durably commits Final corrections once and preserves them through controller takeover', async () => {
+  const s = await seed();
+  s.phase = 'finalReview';
+  s.deadline = undefined;
+  for (const p of s.players) {
+    p.score = 1100;
+    s.final[p.id] = {
+      score: 1000,
+      wager: 100,
+      text: 'Saved response',
+      judged: true,
+      correct: true,
+    };
+    s.events.push({
+      id: crypto.randomUUID(),
+      questionId: 'final',
+      playerId: p.id,
+      delta: 100,
+      reason: 'Final Jeopardy',
+      at: Date.now(),
+    });
+  }
+  await pg.query('update public.sessions set state=$2 where id=$1', [s.id, JSON.stringify(s)]);
+  const before = (await runtime(s.id)).state;
+  const ctx = {
+    userId: HOST,
+    controller: CONTROL,
+    now: Date.now(),
+    expectedVersion: before.actionVersion,
+    actionId: crypto.randomUUID(),
+  };
+  const next = applyCommand(
+    before,
+    { type: 'correctFinal', playerId: players[0], correct: false },
+    ctx,
+  );
+  expect(await commit(before, next)).toBe(true);
+  expect(await commit(before, next)).toBe(false);
+  const saved = (await runtime(s.id)).state;
+  expect(saved.players[0].score).toBe(900);
+  expect(saved.final[players[0]].correct).toBe(false);
+  expect(
+    saved.events.filter((e) => e.playerId === players[0]).reduce((n, e) => n + e.delta, 0),
+  ).toBe(-100);
+  const controller = crypto.randomUUID();
+  const claimed = applyCommand(
+    saved,
+    { type: 'claim', pin: '123456', controller },
+    {
+      ...ctx,
+      actionId: crypto.randomUUID(),
+      expectedVersion: saved.actionVersion,
+      pinVerified: true,
+    },
+  );
+  expect(await commit(saved, claimed)).toBe(true);
+  const resumed = (await runtime(s.id)).state;
+  expect(resumed.paused).toBe(true);
+  expect(resumed.phase).toBe('finalReview');
+  expect(resumed.players[0].score).toBe(900);
+  expect(resumed.final[players[0]].text).toBe('Saved response');
+});

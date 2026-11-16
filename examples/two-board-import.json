@@ -1,0 +1,55 @@
+{
+  "title": "My game",
+  "categories": [
+    {
+      "name": "Science",
+      "questions": [
+        {
+          "value": 200,
+          "question": "Which planet is known as the Red Planet?",
+          "answer": "Mars",
+          "notes": "Also accept: the fourth planet",
+          "dailyDouble": true
+        }
+      ]
+    }
+  ],
+  "final": {
+    "category": "World Landmarks",
+    "question": "Which Indian mausoleum was commissioned by Shah Jahan?",
+    "answer": "The Taj Mahal"
+  },
+  "tiebreakers": [
+    {
+      "category": "World capitals",
+      "question": "Which city is the capital of Canada?",
+      "answer": "What is Ottawa?"
+    },
+    {
+      "category": "Science",
+      "question": "Which element has the chemical symbol He?",
+      "answer": "What is helium?"
+    }
+  ],
+  "doubleJeopardy": {
+    "categories": [
+      {
+        "name": "Double Science",
+        "questions": [
+          {
+            "value": 400,
+            "question": "Which element has the symbol He?",
+            "answer": "Helium",
+            "dailyDouble": true
+          },
+          {
+            "value": 800,
+            "question": "What is the SI unit of force?",
+            "answer": "The newton",
+            "dailyDouble": true
+          }
+        ]
+      }
+    ]
+  }
+}

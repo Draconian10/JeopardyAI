@@ -2242,3 +2242,182 @@ test('host approval UI authorizes one recovery request and removes it from the q
   await expect.poll(() => approved).toBe(1);
   await expect(requests).toHaveCount(0);
 });
+
+function withSecondBoard() {
+  const s = fixture(),
+    second = starterBoard();
+  s.board.doubleJeopardy = {
+    categories: second.categories.map((c) => 'Double ' + c),
+    rows: second.rows,
+    questions: second.questions.map((q, i) => ({
+      ...q,
+      value: q.value * 2,
+      dailyDouble: i === 0 || i === second.rows,
+    })),
+  };
+  return s;
+}
+test('optional Double Jeopardy editor preserves both boards and exports portable JSON without overflow', async ({
+  page,
+}) => {
+  const s = fixture();
+  await mock(page, s);
+  await page.goto(`/host/edit/${s.gameId}`);
+  await expect(
+    page.getByRole('button', { name: 'Double Jeopardy board', exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole('button', { name: 'Add Double Jeopardy board', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Double Jeopardy board', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await page.getByLabel('Category 1', { exact: true }).fill('Second round category');
+  await page
+    .locator('.question-editor')
+    .getByLabel('Clue', { exact: true })
+    .fill('Second round clue');
+  await page.getByRole('button', { name: 'Jeopardy board', exact: true }).click();
+  await expect(page.getByLabel('Category 1', { exact: true })).toHaveValue(s.board.categories[0]);
+  await page.getByRole('button', { name: 'Import JSON', exact: true }).click();
+  await page.getByRole('button', { name: 'Use current board JSON', exact: true }).click();
+  const json = JSON.parse(await page.getByLabel('Board JSON', { exact: true }).inputValue());
+  expect(json.categories[0].questions[0].question).toBe(s.board.questions[0].prompt);
+  expect(json.doubleJeopardy.categories[0].name).toBe('Second round category');
+  expect(json.doubleJeopardy.categories[0].questions[0].question).toBe('Second round clue');
+  expect(
+    json.doubleJeopardy.categories
+      .flatMap((c: { questions: { dailyDouble: boolean }[] }) => c.questions)
+      .filter((q: { dailyDouble: boolean }) => q.dailyDouble),
+  ).toHaveLength(2);
+  const saved = page.waitForRequest(
+    (r) => r.url().includes(`/api/games/${s.gameId}`) && r.method() === 'PUT',
+  );
+  await page.getByRole('button', { name: 'Save board', exact: true }).click();
+  expect((await saved).postDataJSON().board.doubleJeopardy.categories[0]).toBe(
+    'Second round category',
+  );
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('button', { name: 'Remove Double Jeopardy', exact: true }).click();
+  await page.getByRole('button', { name: 'Use current board JSON', exact: true }).click();
+  expect(
+    JSON.parse(await page.getByLabel('Board JSON', { exact: true }).inputValue()),
+  ).not.toHaveProperty('doubleJeopardy');
+});
+test('two-board JSON imports directly into the editor and the round switches retain clues', async ({
+  page,
+}) => {
+  const s = withSecondBoard();
+  await mock(page, fixture());
+  await page.goto('/host/edit/new');
+  await page.getByRole('button', { name: 'Import JSON', exact: true }).click();
+  const { boardToQuestionJson } = await import('../../lib/game/question-json');
+  await page
+    .getByLabel('Board JSON', { exact: true })
+    .fill(JSON.stringify(boardToQuestionJson(s.board)));
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('button', { name: 'Validate & apply JSON' }).click();
+  await page.getByRole('button', { name: 'Double Jeopardy board', exact: true }).click();
+  await expect(page.getByLabel('Category 1', { exact: true })).toHaveValue(
+    'Double Around the World',
+  );
+  await expect(
+    page.locator('.question-editor').getByRole('textbox', { name: 'Clue', exact: true }),
+  ).toHaveValue(s.board.doubleJeopardy!.questions[0].prompt);
+});
+test('round standings survive reload and transition to the same Double Jeopardy tile format', async ({
+  page,
+}) => {
+  const s = withSecondBoard();
+  s.phase = 'roundBreak';
+  s.used = s.board.questions.map((q) => q.id);
+  s.players[0].score = 1200;
+  const current = await mock(page, s);
+  await openControlledHost(page, s);
+  await expect(page.getByRole('heading', { name: 'Next up: Double Jeopardy' })).toBeVisible();
+  await page.reload();
+  await page.getByLabel('Host PIN').fill('123456');
+  await page.getByRole('button', { name: 'Resume / take control' }).click();
+  await page.getByRole('button', { name: 'Continue game', exact: false }).first().click();
+  await page.getByRole('button', { name: 'Start Double Jeopardy', exact: false }).click();
+  await expect(page.locator('.jeopardy-board .category').first()).toHaveText(
+    'Double Around the World',
+  );
+  expect(current().players[0].score).toBe(1200);
+  expect(current().round).toBe(2);
+  expect(current().nextSelectorId).toBe(PLAYER);
+  await page.locator('[data-clue-id]').first().click();
+  await expect(page.getByRole('heading', { name: /found the Daily Double/ })).toBeVisible();
+  expect(current().daily?.playerId).toBe(PLAYER);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+});
+for (const role of ['audience', 'player'] as const)
+  test(`${role} sees round standings without host transition controls`, async ({ page }) => {
+    const s = withSecondBoard();
+    s.phase = 'roundBreak';
+    s.players[0].score = 1200;
+    await mock(page, s, role === 'audience' ? HOST : PLAYER);
+    await page.goto(role === 'audience' ? `/display/${s.id}` : `/play/${s.id}`);
+    await expect(page.getByRole('heading', { name: 'Next up: Double Jeopardy' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Start Double Jeopardy' })).toHaveCount(0);
+    await expect(page.getByText('Waiting for the host to start the next round.')).toBeVisible();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true);
+  });
+test('host corrects a Final judgment before confirming and locks it after winner announcement', async ({
+  page,
+}) => {
+  const s = fixture();
+  s.phase = 'finalReview';
+  s.players[0].score = 800;
+  s.final = {
+    [PLAYER]: { score: 1000, wager: 200, text: 'The Taj Mahal', judged: true, correct: false },
+  };
+  const current = await mock(page, s);
+  await openControlledHost(page, s);
+  await page.getByText('Correct a Final judgment', { exact: true }).click();
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('button', { name: 'Mark correct', exact: true }).click();
+  await expect.poll(() => current().players[0].score).toBe(1200);
+  await expect(page.getByRole('button', { name: 'Mark incorrect', exact: true })).toBeVisible();
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('button', { name: 'Mark incorrect', exact: true }).click();
+  await expect.poll(() => current().players[0].score).toBe(800);
+  await page.getByRole('button', { name: 'Announce the winner', exact: false }).click();
+  await expect(page.getByRole('heading', { name: 'Alex wins!', exact: true })).toBeVisible();
+  await expect(page.locator('.final-corrections')).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+});
+
+test('Final correction updates the confirmation from a unique winner to sudden death', async ({
+  page,
+}) => {
+  const s = fixture();
+  s.phase = 'finalReview';
+  s.players[0].score = 1200;
+  s.players.push({ id: TIED_OTHER, name: 'Sam', score: 800, lastSeen: Date.now(), removed: false });
+  s.final = {
+    [PLAYER]: { score: 1000, wager: 200, text: 'Alex answer', judged: true, correct: true },
+    [TIED_OTHER]: { score: 1000, wager: 200, text: 'Sam answer', judged: true, correct: false },
+  };
+  const current = await mock(page, s);
+  await openControlledHost(page, s);
+  await expect(
+    page.getByRole('button', { name: 'Announce the winner', exact: false }),
+  ).toBeVisible();
+  await page.getByText('Correct a Final judgment', { exact: true }).click();
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('button', { name: 'Mark correct', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Start sudden-death tiebreaker', exact: false }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Start sudden-death tiebreaker', exact: false }).click();
+  expect(current().tiebreaker?.playerIds).toEqual([PLAYER, TIED_OTHER]);
+  await expect(page.locator('.final-corrections')).toHaveCount(0);
+});

@@ -13,6 +13,8 @@ const HOST_ACTIONS = new Set([
   'tieReveal',
   'claim',
   'start',
+  'startDouble',
+  'correctFinal',
   'practiceStart',
   'practiceStop',
   'configure',
@@ -45,6 +47,9 @@ export class GameError extends Error {
 }
 function requireThat(condition: unknown, message: string, status = 400): asserts condition {
   if (!condition) throw new GameError(message, status);
+}
+export function activeBoard(s: Session) {
+  return s.round === 2 && s.board.doubleJeopardy ? s.board.doubleJeopardy : s.board;
 }
 export const activePlayers = (s: Session) => s.players.filter((p) => !p.removed);
 // Only active seats can select. Legacy sessions use a stable fallback without rerolling on reads.
@@ -207,7 +212,7 @@ function judgeRegular(s: Session, correct: boolean, ctx: Context, timedOut = fal
   requireThat(s.respondent, 'No player is answering.');
   rememberJudgment(s);
   const respondent = s.respondent;
-  const q = s.board.questions.find((q) => q.id === s.questionId)!;
+  const q = activeBoard(s).questions.find((q) => q.id === s.questionId)!;
   score(
     s,
     respondent,
@@ -431,10 +436,20 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       s.phase = 'board';
       s.locked = true;
       break;
+    case 'startDouble':
+      phase('roundBreak');
+      requireThat(s.board.doubleJeopardy && s.round !== 2, 'No second board is available.');
+      s.round = 2;
+      s.nextSelectorId = [...activePlayers(s)].sort(
+        (a, b) => a.score - b.score || a.id.localeCompare(b.id),
+      )[0]?.id;
+      s.phase = 'board';
+      clearJudgments(s);
+      break;
     case 'select': {
       phase('board');
       s.nextSelectorId = nextSelectorId(s);
-      const q = s.board.questions.find((q) => q.id === cmd.questionId);
+      const q = activeBoard(s).questions.find((q) => q.id === cmd.questionId);
       requireThat(q && !s.used.includes(q.id), 'Choose an unused clue.');
       s.questionId = q.id;
       s.questionOpenedAt = ctx.now;
@@ -497,7 +512,11 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       s.respondent = undefined;
       s.daily = undefined;
       s.attempted = [];
-      if (s.used.length === s.board.questions.length) {
+      if (activeBoard(s).questions.every((q) => s.used.includes(q.id))) {
+        if (s.round !== 2 && s.board.doubleJeopardy) {
+          s.phase = 'roundBreak';
+          break;
+        }
         s.phase = 'finalWager';
         s.questionOpenedAt = ctx.now;
         s.final = Object.fromEntries(
@@ -589,6 +608,21 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       );
       score(s, cmd.playerId, cmd.correct ? entry.wager! : -entry.wager!, 'Final Jeopardy', ctx);
       entry.judged = true;
+      entry.correct = cmd.correct;
+      break;
+    }
+    case 'correctFinal': {
+      phase('finalReview');
+      const entry = s.final[cmd.playerId];
+      requireThat(entry?.judged, 'Only an already judged response can be corrected.');
+      requireThat(entry.correct !== cmd.correct, 'This judgment is already applied.');
+      requireThat(
+        !cmd.correct || !!entry.text.trim(),
+        'A blank response must be marked incorrect.',
+      );
+      const oldDelta = entry.correct ? entry.wager! : -entry.wager!;
+      const newDelta = cmd.correct ? entry.wager! : -entry.wager!;
+      score(s, cmd.playerId, newDelta - oldDelta, 'Final Jeopardy judgment correction', ctx);
       entry.correct = cmd.correct;
       break;
     }
@@ -710,7 +744,7 @@ export function viewSession(
   const me = activePlayers(s).find((p) => p.id === userId);
   requireThat(host || me, 'You do not have access to this session.', 403);
   const privateHost = host && !audience;
-  const q = s.board.questions.find((q) => q.id === s.questionId);
+  const q = activeBoard(s).questions.find((q) => q.id === s.questionId);
   const revealed = s.phase === 'reveal';
   const finalDone = s.phase === 'finished';
   const currentReview = s.phase === 'finalReview' ? finalReviewPlayer(s) : undefined;
@@ -745,9 +779,11 @@ export function viewSession(
     hostReconnecting: now - s.hostSeen >= 10000,
     controllerOwned: host && controller === s.controller,
     players: activePlayers(s),
-    categories: s.board.categories,
-    rows: s.board.rows,
-    tiles: s.board.questions.map((q) => ({
+    round: s.round ?? 1,
+    hasDoubleJeopardy: !!s.board.doubleJeopardy,
+    categories: activeBoard(s).categories,
+    rows: activeBoard(s).rows,
+    tiles: activeBoard(s).questions.map((q) => ({
       id: q.id,
       category: q.category,
       row: q.row,
@@ -757,7 +793,7 @@ export function viewSession(
     question: q
       ? {
           id: q.id,
-          category: s.board.categories[q.category],
+          category: activeBoard(s).categories[q.category],
           value: q.value,
           prompt:
             s.phase === 'dailyWager' ? 'Daily Double' : s.phase === 'answering' ? '' : q.prompt,
