@@ -3385,3 +3385,11 @@ input[type='checkbox'] {
     transition: none;
   }
 }
+
+/* Keep judging actions clear of the expandable response card in either state. */
+.session-container .host-answer + .button-row {
+  margin-top: 24px;
+}
+.session-container .host-response-content > .host-response-text:first-child {
+  margin-top: 0;
+}

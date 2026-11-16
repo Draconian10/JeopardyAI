@@ -23,7 +23,6 @@ export default function HostResponse({
         <ChevronDown className="disclosure-chevron" size={19} aria-hidden="true" />
       </summary>
       <div className="host-response-content">
-        <span className="response-caption">Correct response</span>
         <p className="host-response-text">{response}</p>
         {notes?.trim() && (
           <div className="host-response-notes">

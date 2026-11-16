@@ -2516,3 +2516,64 @@ test('public Final solution keeps its reveal stage and wraps a long correct resp
     true,
   );
 });
+
+test('Import JSON opens with both current boards, Final and saved tiebreakers and refreshes after visual edits', async ({
+  page,
+}) => {
+  const s = withSecondBoard();
+  s.board.tiebreakers = [{ category: 'Backup', prompt: 'Backup clue', answer: 'Backup answer' }];
+  await mock(page, s);
+  await page.goto(`/host/edit/${s.gameId}`);
+  await page.getByLabel('Board title', { exact: true }).fill('Updated title');
+  await page.getByLabel('Category 1', { exact: true }).fill('Updated category');
+  await page.getByRole('button', { name: 'Import JSON', exact: true }).click();
+  const field = page.getByLabel('Board JSON', { exact: true });
+  let json = JSON.parse(await field.inputValue());
+  expect(json.title).toBe('Updated title');
+  expect(json.categories[0].name).toBe('Updated category');
+  expect(json.doubleJeopardy.categories[0].name).toBe('Double Around the World');
+  expect(json.final.answer).toBe(s.board.final.answer);
+  expect(json.tiebreakers[0].answer).toBe('Backup answer');
+  await page.getByRole('button', { name: 'Close JSON editor', exact: true }).click();
+  await page.getByLabel('Category 1', { exact: true }).fill('Latest category');
+  await page.getByRole('button', { name: 'Import JSON', exact: true }).click();
+  json = JSON.parse(await field.inputValue());
+  expect(json.categories[0].name).toBe('Latest category');
+});
+test('Import JSON preserves unapplied text across closing, board edits and reopening', async ({
+  page,
+}) => {
+  const s = fixture();
+  await mock(page, s);
+  await page.goto(`/host/edit/${s.gameId}`);
+  await page.getByRole('button', { name: 'Import JSON', exact: true }).click();
+  const field = page.getByLabel('Board JSON', { exact: true });
+  await field.fill('{ "unapplied": "keep this draft"');
+  await page.getByRole('button', { name: 'Close JSON editor', exact: true }).click();
+  await page.getByLabel('Board title', { exact: true }).fill('Another visual edit');
+  await page.getByRole('button', { name: 'Import JSON', exact: true }).click();
+  await expect(field).toHaveValue('{ "unapplied": "keep this draft"');
+});
+test('Final response disclosure has one label and stays separated from judging buttons open or closed', async ({
+  page,
+}) => {
+  const s = fixture();
+  s.phase = 'finalReview';
+  s.final = { [PLAYER]: { score: 1000, wager: 200, text: 'Submitted response' } };
+  await mock(page, s);
+  await openControlledHost(page, s);
+  const card = page.locator('.host-answer'),
+    button = page.getByRole('button', { name: 'Correct', exact: true });
+  for (const open of [false, true]) {
+    if (open) await card.locator('summary').click();
+    await expect(card.getByText('Correct response', { exact: true })).toHaveCount(1);
+    const a = await card.boundingBox(),
+      b = await button.boundingBox();
+    expect(a).not.toBeNull();
+    expect(b).not.toBeNull();
+    expect(b!.y - (a!.y + a!.height)).toBeGreaterThanOrEqual(23);
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+});

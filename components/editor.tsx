@@ -405,6 +405,14 @@ function EditorInner({ id, ownerId }: { id: string; ownerId: string }) {
             aria-expanded={importOpen}
             aria-controls="question-json-import"
             onClick={() => {
+              if (!importOpen && !jsonDirty.current) {
+                jsonRef.current = JSON.stringify(
+                  boardToQuestionJson(latest.current ?? board),
+                  null,
+                  2,
+                );
+                setJsonText(jsonRef.current);
+              }
               setImportOpen(!importOpen);
               setImportError('');
             }}
