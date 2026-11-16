@@ -56,8 +56,12 @@ export const activePlayers = (s: Session) => s.players.filter((p) => !p.removed)
 export function nextSelectorId(s: Session) {
   return activePlayers(s).find((p) => p.id === s.nextSelectorId)?.id ?? activePlayers(s)[0]?.id;
 }
-function randomFirstSelector(s: Session) {
-  const players = activePlayers(s);
+function randomSelector(s: Session, lowestOnly = false) {
+  const active = activePlayers(s);
+  const lowest = Math.min(...active.map((p) => p.score));
+  const players = lowestOnly ? active.filter((p) => p.score === lowest) : active;
+  requireThat(players.length > 0, 'At least one active player is required.');
+  if (players.length === 1) return players[0].id;
   const bound = Math.floor(0x100000000 / players.length) * players.length;
   const sample = new Uint32Array(1);
   do crypto.getRandomValues(sample);
@@ -432,7 +436,7 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
     case 'start':
       phase('lobby');
       requireThat(activePlayers(s).length > 0, 'At least one player must join.');
-      s.nextSelectorId = randomFirstSelector(s);
+      s.nextSelectorId = randomSelector(s);
       s.phase = 'board';
       s.locked = true;
       break;
@@ -440,9 +444,7 @@ export function applyCommand(original: Session, cmd: Command, ctx: Context): Ses
       phase('roundBreak');
       requireThat(s.board.doubleJeopardy && s.round !== 2, 'No second board is available.');
       s.round = 2;
-      s.nextSelectorId = [...activePlayers(s)].sort(
-        (a, b) => a.score - b.score || a.id.localeCompare(b.id),
-      )[0]?.id;
+      s.nextSelectorId = randomSelector(s, true);
       s.phase = 'board';
       clearJudgments(s);
       break;

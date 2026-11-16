@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   applyCommand,
   createSession,
@@ -298,4 +298,77 @@ it('runs fifteen seats through both boards, all Final submissions, correction an
   expect(['finished', 'tieSetup']).toContain(s.phase);
   expect(s.used).toHaveLength(5);
   expect(s.players).toHaveLength(15);
+});
+
+describe('saved random selection among tied lowest scores', () => {
+  it('chooses either tied lowest seat, excludes higher/removed seats, and never rerolls on reads, replay or resume', () => {
+    for (const sample of [0, 1]) {
+      let s = consumeRound(game());
+      s.players.forEach((p) => (p.score = -300));
+      s.players.push({
+        id: crypto.randomUUID(),
+        name: 'Higher score',
+        score: 500,
+        lastSeen: NOW,
+        removed: false,
+      });
+      s.players.push({
+        id: crypto.randomUUID(),
+        name: 'Removed',
+        score: -900,
+        lastSeen: NOW,
+        removed: true,
+      });
+      const actionId = crypto.randomUUID();
+      const rng = vi.spyOn(crypto, 'getRandomValues').mockImplementation((array) => {
+        (array as Uint32Array)[0] = sample;
+        return array;
+      });
+      try {
+        s = act(s, { type: 'startDouble' }, HOST, { actionId });
+        expect(s.nextSelectorId).toBe([A, B][sample]);
+        const selected = s.nextSelectorId;
+        expect(viewSession(s, HOST, NOW, CTRL).nextSelectorId).toBe(selected);
+        expect(viewSession(s, A, NOW).nextSelectorId).toBe(selected);
+        s = act(s, { type: 'startDouble' }, HOST, { actionId });
+        s = JSON.parse(JSON.stringify(s));
+        s = act(s, { type: 'claim', pin: '123456', controller: CTRL }, HOST, { pinVerified: true });
+        s = act(s, { type: 'continue' });
+        expect(s.nextSelectorId).toBe(selected);
+        expect(rng).toHaveBeenCalledTimes(1);
+      } finally {
+        rng.mockRestore();
+      }
+    }
+  });
+  it('uses rejection sampling for three tied seats and avoids drawing for a unique lowest score', () => {
+    let s = consumeRound(game());
+    const third = crypto.randomUUID();
+    s.players.push({ id: third, name: 'Third', score: 0, lastSeen: NOW, removed: false });
+    const rng = vi
+      .spyOn(crypto, 'getRandomValues')
+      .mockImplementationOnce((array) => {
+        (array as Uint32Array)[0] = 0xffffffff;
+        return array;
+      })
+      .mockImplementation((array) => {
+        (array as Uint32Array)[0] = 2;
+        return array;
+      });
+    try {
+      s = act(s, { type: 'startDouble' });
+      expect(s.nextSelectorId).toBe(third);
+      expect(rng).toHaveBeenCalledTimes(2);
+      // Reuse the pre-round state to exercise the unique-lowest branch without any random draw.
+      const unique = structuredClone(s);
+      unique.phase = 'roundBreak';
+      unique.round = 1;
+      unique.players[0].score = -100;
+      rng.mockClear();
+      expect(act(unique, { type: 'startDouble' }).nextSelectorId).toBe(A);
+      expect(rng).not.toHaveBeenCalled();
+    } finally {
+      rng.mockRestore();
+    }
+  });
 });

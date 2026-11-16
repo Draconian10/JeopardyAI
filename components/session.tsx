@@ -22,6 +22,7 @@ import {
   Star,
   Wifi,
   WifiOff,
+  ChevronDown,
 } from 'lucide-react';
 import { HostAuth, SetupNotice } from './auth';
 import { configured, money } from '@/lib/client';
@@ -30,6 +31,7 @@ import KeepAwake from './keep-awake';
 import FinalSubmissions from './final-submissions';
 import { finalSubmissionStatus } from '@/lib/game/final-submissions';
 import Standings from './standings';
+import HostResponse from './host-response';
 import DownloadResults from './download-results';
 import ResultsConfetti from './results-confetti';
 import Tiebreaker from './tiebreaker';
@@ -576,7 +578,8 @@ function SessionInner({
                 <span className="eyebrow">JEOPARDY ROUND COMPLETE</span>
                 <h2>Next up: Double Jeopardy</h2>
                 <p className="muted">
-                  Scores carry over. The player with the lowest score selects first.
+                  Scores carry over. The player with the lowest score selects first. If tied, one of
+                  those players is chosen at random.
                 </p>
                 <Standings s={s} />
                 {control ? (
@@ -720,13 +723,7 @@ function SessionInner({
                       {remaining > 0 ? 'BUZZERS ARE OPEN' : 'TIME’S UP'}
                     </p>
                   )}
-                  {host && (
-                    <details className="host-answer">
-                      <summary>Private correct response</summary>
-                      <p>{s.question?.answer}</p>
-                      <small>{s.question?.notes}</small>
-                    </details>
-                  )}
+                  {host && <HostResponse response={s.question?.answer} notes={s.question?.notes} />}
                 </section>
               ))}
             {s.phase === 'dailyWager' && (
@@ -766,12 +763,7 @@ function SessionInner({
                     </button>
                   </div>
                 )}
-                {host && (
-                  <details className="host-answer">
-                    <summary>Private correct response</summary>
-                    <p>{s.question?.answer}</p>
-                  </details>
-                )}
+                {host && <HostResponse response={s.question?.answer} notes={s.question?.notes} />}
               </section>
             )}
             {s.phase === 'reveal' && (
@@ -934,7 +926,12 @@ function SessionInner({
             {s.phase === 'finalReveal' && (
               <section className="question-stage final-stage final-solution">
                 <span className="eyebrow">FINAL JEOPARDY · CORRECT RESPONSE</span>
-                <h2>{s.finalAnswer}</h2>
+                <div className="final-solution-card">
+                  <span className="solution-mark" aria-hidden="true">
+                    <Check size={25} />
+                  </span>
+                  <h2>{s.finalAnswer}</h2>
+                </div>
                 <p>
                   Responses are locked. Review the correct response before revealing each player’s
                   response.
@@ -969,12 +966,7 @@ function SessionInner({
                           </h3>
                           <p>Wager: {money(s.finalEntries[current.id]?.wager ?? 0)}</p>
                         </div>
-                        {host && (
-                          <details className="host-answer">
-                            <summary>Correct response</summary>
-                            <p>{s.finalAnswer}</p>
-                          </details>
-                        )}
+                        {host && <HostResponse response={s.finalAnswer} title="Correct response" />}
                         {control && (
                           <div className="button-row centered">
                             <button
@@ -1055,48 +1047,86 @@ function SessionInner({
                     ))}
                 </div>
                 {control && s.players.some((p) => s.finalEntries[p.id]?.judged) && (
-                  <details className="final-corrections">
-                    <summary>Correct a Final judgment</summary>
-                    <p className="small">
-                      Corrections update scores immediately. Winner and tiebreaker eligibility are
-                      determined when you confirm the results.
-                    </p>
-                    {s.players
-                      .filter((p) => s.finalEntries[p.id]?.judged)
-                      .map((p) => {
-                        const entry = s.finalEntries[p.id];
-                        return (
-                          <div className="final-correction-row" key={p.id}>
-                            <div>
-                              <strong>{p.name}</strong>
-                              <p>{entry.text?.trim() || '(No response)'}</p>
-                              <small>
-                                {entry.correct ? 'Correct' : 'Incorrect'} · Wager{' '}
-                                {money(entry.wager ?? 0)}
-                              </small>
-                            </div>
-                            <button
-                              type="button"
-                              className="button secondary"
-                              disabled={busy || s.paused || (!entry.correct && !entry.text?.trim())}
-                              onClick={() => {
-                                if (
-                                  confirm(
-                                    `Change ${p.name}’s Final judgment to ${entry.correct ? 'incorrect' : 'correct'}? Their score will be recalculated.`,
+                  <details className="final-corrections review-disclosure">
+                    <summary>
+                      <span className="disclosure-icon">
+                        <RotateCcw size={19} aria-hidden="true" />
+                      </span>
+                      <strong>Correct a Final judgment</strong>
+                      <span className="disclosure-tag" aria-hidden="true">
+                        {s.players.filter((p) => s.finalEntries[p.id]?.judged).length} judged
+                      </span>
+                      <ChevronDown className="disclosure-chevron" size={19} aria-hidden="true" />
+                    </summary>
+                    <div className="final-corrections-content">
+                      <p className="small">
+                        Corrections update scores immediately. Winner and tiebreaker eligibility are
+                        determined when you confirm the results.
+                      </p>
+                      {s.players
+                        .filter((p) => s.finalEntries[p.id]?.judged)
+                        .map((p) => {
+                          const entry = s.finalEntries[p.id];
+                          return (
+                            <div className="final-correction-row" key={p.id}>
+                              <div className="correction-response">
+                                <div className="correction-player">
+                                  <strong>{p.name}</strong>
+                                  <span
+                                    className={`judgment-status ${entry.correct ? 'is-correct' : 'is-incorrect'}`}
+                                  >
+                                    {entry.correct ? (
+                                      <Check size={14} aria-hidden="true" />
+                                    ) : (
+                                      <X size={14} aria-hidden="true" />
+                                    )}
+                                    {entry.correct ? 'Correct' : 'Incorrect'}
+                                  </span>
+                                </div>
+                                <span className="response-caption">Submitted response</span>
+                                <p>{entry.text?.trim() || '(No response)'}</p>
+                                <div className="correction-meta">
+                                  <span>
+                                    Wager <b>{money(entry.wager ?? 0)}</b>
+                                  </span>
+                                  {entry.correct || entry.text?.trim() ? (
+                                    <span>
+                                      If changed:{' '}
+                                      <b>
+                                        {entry.correct && entry.wager ? '−' : '+'}
+                                        {money((entry.wager ?? 0) * 2)}
+                                      </b>
+                                    </span>
+                                  ) : (
+                                    <span>Blank responses must remain incorrect.</span>
+                                  )}
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                className={`button ${entry.correct ? 'danger' : 'success'}`}
+                                disabled={
+                                  busy || s.paused || (!entry.correct && !entry.text?.trim())
+                                }
+                                onClick={() => {
+                                  if (
+                                    confirm(
+                                      `Change ${p.name}’s Final judgment to ${entry.correct ? 'incorrect' : 'correct'}? Their score will be recalculated.`,
+                                    )
                                   )
-                                )
-                                  void send({
-                                    type: 'correctFinal',
-                                    playerId: p.id,
-                                    correct: !entry.correct,
-                                  });
-                              }}
-                            >
-                              Mark {entry.correct ? 'incorrect' : 'correct'}
-                            </button>
-                          </div>
-                        );
-                      })}
+                                    void send({
+                                      type: 'correctFinal',
+                                      playerId: p.id,
+                                      correct: !entry.correct,
+                                    });
+                                }}
+                              >
+                                Mark {entry.correct ? 'incorrect' : 'correct'}
+                              </button>
+                            </div>
+                          );
+                        })}
+                    </div>
                   </details>
                 )}
               </section>
