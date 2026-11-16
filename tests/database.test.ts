@@ -34,6 +34,7 @@ beforeAll(async () => {
   await insertSession('112233');
   await pg.exec(readFileSync('supabase/migrations/002_question_json.sql', 'utf8'));
   await pg.exec(readFileSync('supabase/migrations/003_saved_tiebreakers.sql', 'utf8'));
+  await pg.exec(readFileSync('supabase/migrations/006_optional_double_jeopardy.sql', 'utf8'));
 }, 30000);
 afterAll(async () => {
   await pg.close();
@@ -47,6 +48,48 @@ async function insertSession(code = '123456') {
   return s;
 }
 describe('PostgreSQL persistence and authorization', () => {
+  it('stores optional second-board JSON identically to the portable exporter in games and sessions', async () => {
+    const first = starterBoard(),
+      second = starterBoard();
+    first.doubleJeopardy = {
+      categories: second.categories,
+      rows: second.rows,
+      questions: second.questions.map((q, i) => ({
+        ...q,
+        value: q.value * 2,
+        dailyDouble: i === 0 || i === 5,
+      })),
+    };
+    const s = createSession(first, GAME, HOST, '776655', Date.now());
+    await pg.query('update public.games set board=$2 where id=$1', [GAME, JSON.stringify(first)]);
+    await pg.query(
+      'insert into public.sessions(id,game_id,host_id,join_code,state,pin_hash) values ($1,$2,$3,$4,$5,$6)',
+      [s.id, GAME, HOST, s.joinCode, JSON.stringify(s), 'hash'],
+    );
+    for (const [table, id] of [
+      ['games', GAME],
+      ['sessions', s.id],
+    ]) {
+      const result = await pg.query<{ question_json: QuestionJson }>(
+        `select question_json from public.${table} where id=$1`,
+        [id],
+      );
+      expect(result.rows[0].question_json).toEqual(boardToQuestionJson(first));
+    }
+    first.doubleJeopardy.questions[0].prompt = 'Updated only in saved board';
+    await pg.query('update public.games set board=$2 where id=$1', [GAME, JSON.stringify(first)]);
+    const frozen = await pg.query<{ question_json: QuestionJson }>(
+      'select question_json from public.sessions where id=$1',
+      [s.id],
+    );
+    expect(
+      frozen.rows[0].question_json.doubleJeopardy?.categories[0].questions[0].question,
+    ).not.toBe('Updated only in saved board');
+    await pg.query('update public.games set board=$2 where id=$1', [
+      GAME,
+      JSON.stringify(starterBoard()),
+    ]);
+  });
   it('stores saved clues in canonical JSON while freezing session copies independently of later edits', async () => {
     const s = await insertSession('886655');
     s.board.tiebreakers = [

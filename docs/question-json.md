@@ -62,3 +62,7 @@ Add this top-level field alongside `categories` and `final`:
 ```
 
 The array is optional and may be empty; at most 20 clues are allowed. Category: 1–100 characters; question: 1–3,000; answer: 1–2,000. Unknown fields (including dollar values/wagers), blank strings and oversized entries are rejected. Clues retain array order. The host presents the next saved clue with one click during sudden death. Exhausting the list allows custom entry; saved clues are never repeated automatically. All fields can also be edited/reordered under **Sudden-death tiebreakers** in Create/Edit Game. Older JSON without the field remains valid. Apply `003_saved_tiebreakers.sql` after 002 to update the stored database JSON generator.
+
+## Optional second board
+
+Existing JSON remains unchanged. Add `doubleJeopardy: { "categories": [...] }` using the same category/clue format to play a second board before the shared top-level Final. Omit the key to play one board. The first board requires exactly one Daily Double; the second requires exactly two. Each board may have different dimensions. See [two-board guide](two-board-games.md) and [complete example](../examples/two-board-import.json). Migration 006 is required for generated database JSON to include the optional second board.

@@ -571,6 +571,32 @@ function SessionInner({
                   </span>
                 </div>
               )}
+            {s.phase === 'roundBreak' && (
+              <section className="panel reveal-stage round-break">
+                <span className="eyebrow">JEOPARDY ROUND COMPLETE</span>
+                <h2>Next up: Double Jeopardy</h2>
+                <p className="muted">
+                  Scores carry over. The player with the lowest score selects first.
+                </p>
+                <Standings s={s} />
+                {control ? (
+                  <button
+                    className="button primary"
+                    disabled={busy || s.paused}
+                    onClick={() => void send({ type: 'startDouble' })}
+                  >
+                    Start Double Jeopardy <ArrowRight size={17} />
+                  </button>
+                ) : (
+                  <p role="status">Waiting for the host to start the next round.</p>
+                )}
+              </section>
+            )}
+            {s.phase === 'board' && s.round === 2 && (
+              <div className="round-heading">
+                <span className="eyebrow">DOUBLE JEOPARDY</span>
+              </div>
+            )}
             {s.phase === 'board' &&
               (player ? (
                 <div className="panel player-wait">
@@ -760,7 +786,11 @@ function SessionInner({
                     disabled={busy || s.paused}
                     onClick={() => void send({ type: 'next' })}
                   >
-                    {s.tiles.every((t) => t.used) ? 'On to Final Jeopardy' : 'Back to the board'}{' '}
+                    {s.tiles.every((t) => t.used)
+                      ? s.hasDoubleJeopardy && s.round !== 2
+                        ? 'Round standings'
+                        : 'On to Final Jeopardy'
+                      : 'Back to the board'}{' '}
                     <ArrowRight size={17} />
                   </button>
                 )}
@@ -988,6 +1018,12 @@ function SessionInner({
                 ) : (
                   <>
                     <h2>All responses have been judged.</h2>
+                    {host && (
+                      <p>
+                        Review the judgments below before confirming the results. Confirmation locks
+                        Final judgments.
+                      </p>
+                    )}
                     {control && (
                       <button
                         className="button primary"
@@ -1018,6 +1054,51 @@ function SessionInner({
                       </div>
                     ))}
                 </div>
+                {control && s.players.some((p) => s.finalEntries[p.id]?.judged) && (
+                  <details className="final-corrections">
+                    <summary>Correct a Final judgment</summary>
+                    <p className="small">
+                      Corrections update scores immediately. Winner and tiebreaker eligibility are
+                      determined when you confirm the results.
+                    </p>
+                    {s.players
+                      .filter((p) => s.finalEntries[p.id]?.judged)
+                      .map((p) => {
+                        const entry = s.finalEntries[p.id];
+                        return (
+                          <div className="final-correction-row" key={p.id}>
+                            <div>
+                              <strong>{p.name}</strong>
+                              <p>{entry.text?.trim() || '(No response)'}</p>
+                              <small>
+                                {entry.correct ? 'Correct' : 'Incorrect'} · Wager{' '}
+                                {money(entry.wager ?? 0)}
+                              </small>
+                            </div>
+                            <button
+                              type="button"
+                              className="button secondary"
+                              disabled={busy || s.paused || (!entry.correct && !entry.text?.trim())}
+                              onClick={() => {
+                                if (
+                                  confirm(
+                                    `Change ${p.name}’s Final judgment to ${entry.correct ? 'incorrect' : 'correct'}? Their score will be recalculated.`,
+                                  )
+                                )
+                                  void send({
+                                    type: 'correctFinal',
+                                    playerId: p.id,
+                                    correct: !entry.correct,
+                                  });
+                              }}
+                            >
+                              Mark {entry.correct ? 'incorrect' : 'correct'}
+                            </button>
+                          </div>
+                        );
+                      })}
+                  </details>
+                )}
               </section>
             )}
           </div>

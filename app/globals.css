@@ -3132,3 +3132,49 @@ input[type='checkbox'] {
   white-space: nowrap;
   border: 0;
 }
+
+/* Optional round and Final review controls share the existing theme. */
+.round-editor-controls {
+  margin-bottom: 1.5rem;
+}
+.round-editor-controls .button-row {
+  margin-top: 1rem;
+}
+.round-heading {
+  margin-bottom: 1rem;
+}
+.final-corrections {
+  margin-top: 1.5rem;
+  text-align: left;
+  border-top: 1px solid currentColor;
+  padding-top: 1rem;
+}
+.final-corrections summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+.final-correction-row {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+}
+.final-correction-row > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.final-correction-row p {
+  margin: 0.5rem 0;
+}
+.final-correction-row .button {
+  flex-shrink: 0;
+  white-space: normal;
+}
+@media (max-width: 600px) {
+  .final-correction-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

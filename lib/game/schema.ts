@@ -16,47 +16,73 @@ export const questionSchema = z
 export const tiebreakerClueSchema = z
   .object({ category: text(100), prompt: text(3000), answer: text(2000) })
   .strict();
+const gridShape = {
+  categories: z.array(text(80)).min(1).max(8),
+  rows: z.number().int().min(1).max(8),
+  questions: z.array(questionSchema).min(1).max(64),
+};
+function validateGrid(
+  b: { categories: string[]; rows: number; questions: z.infer<typeof questionSchema>[] },
+  ctx: z.RefinementCtx,
+) {
+  const positions = new Set<string>();
+  const ids = new Set<string>();
+  for (const q of b.questions) {
+    const key = `${q.category}:${q.row}`;
+    if (q.category >= b.categories.length || q.row >= b.rows || positions.has(key) || ids.has(q.id))
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Every board position and clue ID must be unique and inside the board.',
+      });
+    positions.add(key);
+    ids.add(q.id);
+  }
+  if (positions.size !== b.categories.length * b.rows)
+    ctx.addIssue({
+      code: 'custom',
+      message: 'The board must contain exactly one clue per position.',
+    });
+}
+export const roundBoardSchema = z.object(gridShape).strict().superRefine(validateGrid);
+export type RoundBoard = z.infer<typeof roundBoardSchema>;
 export const boardSchema = z
   .object({
     title: text(100).min(1, 'Give your game a title.'),
-    categories: z.array(text(80)).min(1).max(8),
-    rows: z.number().int().min(1).max(8),
+    ...gridShape,
+    doubleJeopardy: roundBoardSchema.optional(),
     tiebreakers: z.array(tiebreakerClueSchema).max(20).optional(),
-    questions: z.array(questionSchema).min(1).max(64),
     final: z.object({ category: text(100), prompt: text(3000), answer: text(2000) }).strict(),
   })
   .strict()
   .superRefine((b, ctx) => {
-    const positions = new Set<string>();
-    const ids = new Set<string>();
-    for (const q of b.questions) {
-      const key = `${q.category}:${q.row}`;
-      if (
-        q.category >= b.categories.length ||
-        q.row >= b.rows ||
-        positions.has(key) ||
-        ids.has(q.id)
-      )
-        ctx.addIssue({
-          code: 'custom',
-          message: 'Every board position and clue ID must be unique and inside the board.',
-        });
-      positions.add(key);
-      ids.add(q.id);
-    }
-    if (positions.size !== b.categories.length * b.rows)
+    validateGrid(b, ctx);
+    const firstIds = new Set(b.questions.map((q) => q.id));
+    if (b.doubleJeopardy?.questions.some((q) => firstIds.has(q.id)))
       ctx.addIssue({
         code: 'custom',
-        message: 'The board must contain exactly one clue per position.',
+        path: ['doubleJeopardy'],
+        message: 'Clue IDs must be unique across both boards.',
       });
   });
 export type Board = z.infer<typeof boardSchema>;
 export function playable(board: Board) {
   boardSchema.parse(board);
-  if (board.categories.some((c) => !c) || board.questions.some((q) => !q.prompt || !q.answer))
-    throw new Error('Complete every category, clue, and correct response before starting.');
-  if (board.questions.filter((q) => q.dailyDouble).length !== 1)
-    throw new Error('Select exactly one Daily Double.');
+  for (const [index, grid] of [
+    board,
+    ...(board.doubleJeopardy ? [board.doubleJeopardy] : []),
+  ].entries()) {
+    if (grid.categories.some((c) => !c) || grid.questions.some((q) => !q.prompt || !q.answer))
+      throw new Error(
+        `${index ? 'Double Jeopardy: ' : ''}Complete every category, clue, and correct response before starting.`,
+      );
+    const count = index === 0 ? 1 : 2;
+    if (grid.questions.filter((q) => q.dailyDouble).length !== count)
+      throw new Error(
+        index
+          ? 'Select exactly two Daily Doubles for Double Jeopardy.'
+          : 'Select exactly one Daily Double.',
+      );
+  }
   if (board.tiebreakers?.some((q) => !q.category || !q.prompt || !q.answer))
     throw new Error(
       'Complete every saved tiebreaker category, clue, and correct response, or remove the incomplete clue.',
@@ -75,6 +101,7 @@ export const commandSchema = z.discriminatedUnion('type', [
       .refine((s) => !/[\p{C}]/u.test(s), 'Use a printable name.'),
   }),
   action('start', {}),
+  action('startDouble', {}),
   action('practiceStart', {}),
   action('practiceStop', {}),
   action('configure', {
@@ -108,6 +135,7 @@ export const commandSchema = z.discriminatedUnion('type', [
   }),
   action('reviewFinal', {}),
   action('finalJudge', { playerId: z.string().uuid(), correct: z.boolean() }),
+  action('correctFinal', { playerId: z.string().uuid(), correct: z.boolean() }),
   action('finish', {}),
   action('tieClue', {
     category: text(100).min(1),

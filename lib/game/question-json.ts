@@ -13,21 +13,24 @@ const importedQuestion = z
   })
   .strict();
 
-/** Portable authoring format: no internal UUIDs or positional indexes required. */
+const importedCategories = z
+  .array(
+    z
+      .object({
+        name: requiredText(80),
+        questions: z.array(importedQuestion).min(1).max(8),
+      })
+      .strict(),
+  )
+  .min(1)
+  .max(8);
+const importedRound = z.object({ categories: importedCategories }).strict();
+/** Portable authoring format: old one-board JSON remains valid. */
 export const questionJsonSchema = z
   .object({
     title: requiredText(100),
-    categories: z
-      .array(
-        z
-          .object({
-            name: requiredText(80),
-            questions: z.array(importedQuestion).min(1).max(8),
-          })
-          .strict(),
-      )
-      .min(1)
-      .max(8),
+    categories: importedCategories,
+    doubleJeopardy: importedRound.optional(),
     tiebreakers: z
       .array(
         z
@@ -50,46 +53,42 @@ export const questionJsonSchema = z
   })
   .strict()
   .superRefine((value, ctx) => {
-    const rows = value.categories[0].questions.length;
-    const names = new Set<string>();
-    value.categories.forEach((category, index) => {
-      if (category.questions.length !== rows)
-        ctx.addIssue({
-          code: 'custom',
-          path: ['categories', index, 'questions'],
-          message: 'Every category must have the same number of clues.',
-        });
-      const key = category.name.toLocaleLowerCase('en-US');
-      if (names.has(key))
-        ctx.addIssue({
-          code: 'custom',
-          path: ['categories', index, 'name'],
-          message: 'Category names must be unique (ignoring case).',
-        });
-      names.add(key);
-    });
-    if (value.categories.flatMap((c) => c.questions).filter((q) => q.dailyDouble).length !== 1)
-      ctx.addIssue({
-        code: 'custom',
-        path: ['categories'],
-        message: 'Mark exactly one clue with "dailyDouble": true.',
+    for (const [index, grid] of [
+      value,
+      ...(value.doubleJeopardy ? [value.doubleJeopardy] : []),
+    ].entries()) {
+      const prefix = index ? ['doubleJeopardy'] : [];
+      const rows = grid.categories[0].questions.length;
+      const names = new Set<string>();
+      grid.categories.forEach((category, column) => {
+        if (category.questions.length !== rows)
+          ctx.addIssue({
+            code: 'custom',
+            path: [...prefix, 'categories', column, 'questions'],
+            message: 'Every category must have the same number of clues.',
+          });
+        const key = category.name.toLocaleLowerCase('en-US');
+        if (names.has(key))
+          ctx.addIssue({
+            code: 'custom',
+            path: [...prefix, 'categories', column, 'name'],
+            message: 'Category names must be unique (ignoring case).',
+          });
+        names.add(key);
       });
+      const count = index ? 2 : 1;
+      if (grid.categories.flatMap((c) => c.questions).filter((q) => q.dailyDouble).length !== count)
+        ctx.addIssue({
+          code: 'custom',
+          path: [...prefix, 'categories'],
+          message: `Mark exactly ${index ? 'two clues' : 'one clue'} with "dailyDouble": true${index ? ' for Double Jeopardy' : ''}.`,
+        });
+    }
   });
 export type QuestionJson = z.infer<typeof questionJsonSchema>;
 
-export function questionJsonToBoard(input: unknown): Board {
-  const value = questionJsonSchema.parse(input);
-  const board = boardSchema.parse({
-    title: value.title,
-    ...(value.tiebreakers !== undefined
-      ? {
-          tiebreakers: value.tiebreakers.map((q) => ({
-            category: q.category,
-            prompt: q.question,
-            answer: q.answer,
-          })),
-        }
-      : {}),
+function importGrid(value: { categories: z.infer<typeof importedCategories> }) {
+  return {
     categories: value.categories.map((c) => c.name),
     rows: value.categories[0].questions.length,
     questions: value.categories.flatMap((category, column) =>
@@ -104,6 +103,40 @@ export function questionJsonToBoard(input: unknown): Board {
         dailyDouble: q.dailyDouble,
       })),
     ),
+  };
+}
+function exportGrid(board: Pick<Board, 'categories' | 'questions'>) {
+  return {
+    categories: board.categories.map((name, index) => ({
+      name,
+      questions: board.questions
+        .filter((q) => q.category === index)
+        .sort((a, b) => a.row - b.row)
+        .map((q) => ({
+          value: q.value,
+          question: q.prompt,
+          answer: q.answer,
+          notes: q.notes,
+          dailyDouble: q.dailyDouble,
+        })),
+    })),
+  };
+}
+export function questionJsonToBoard(input: unknown): Board {
+  const value = questionJsonSchema.parse(input);
+  const board = boardSchema.parse({
+    title: value.title,
+    ...(value.tiebreakers !== undefined
+      ? {
+          tiebreakers: value.tiebreakers.map((q) => ({
+            category: q.category,
+            prompt: q.question,
+            answer: q.answer,
+          })),
+        }
+      : {}),
+    ...importGrid(value),
+    ...(value.doubleJeopardy ? { doubleJeopardy: importGrid(value.doubleJeopardy) } : {}),
     final: {
       category: value.final.category,
       prompt: value.final.question,
@@ -138,19 +171,8 @@ export function boardToQuestionJson(board: Board): QuestionJson {
           })),
         }
       : {}),
-    categories: board.categories.map((name, index) => ({
-      name,
-      questions: board.questions
-        .filter((q) => q.category === index)
-        .sort((a, b) => a.row - b.row)
-        .map((q) => ({
-          value: q.value,
-          question: q.prompt,
-          answer: q.answer,
-          notes: q.notes,
-          dailyDouble: q.dailyDouble,
-        })),
-    })),
+    ...exportGrid(board),
+    ...(board.doubleJeopardy ? { doubleJeopardy: exportGrid(board.doubleJeopardy) } : {}),
     final: {
       category: board.final.category,
       question: board.final.prompt,

@@ -113,11 +113,14 @@ export function resultsCsv(s: Session): string {
     ]),
   ];
   questionIds.forEach((id, index) => {
-    const q = s.board.questions.find((q) => q.id === id);
+    const grid = s.board.doubleJeopardy?.questions.some((q) => q.id === id)
+      ? s.board.doubleJeopardy
+      : s.board;
+    const q = grid.questions.find((q) => q.id === id);
     const question = [
       index + 1,
       id,
-      id === 'final' ? s.board.final.category : q ? s.board.categories[q.category] : '',
+      id === 'final' ? s.board.final.category : q ? grid.categories[q.category] : '',
       id === 'final' ? s.board.final.prompt : (q?.prompt ?? ''),
       q?.value ?? '',
     ];

@@ -11,7 +11,7 @@ import {
   type BoardDraft,
 } from '@/lib/board-drafts';
 import { api, money } from '@/lib/client';
-import { boardSchema, playable, type Board } from '@/lib/game/schema';
+import { boardSchema, playable, type Board, type RoundBoard } from '@/lib/game/schema';
 import { blankBoard, starterBoard } from '@/lib/game/starter';
 import {
   boardToQuestionJson,
@@ -27,6 +27,7 @@ export default function Editor({ id }: { id: string }) {
 }
 function EditorInner({ id, ownerId }: { id: string; ownerId: string }) {
   const [board, setBoard] = useState<Board>();
+  const [editingDouble, setEditingDouble] = useState(false);
   const [selected, setSelected] = useState<string>('final');
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
@@ -243,7 +244,29 @@ function EditorInner({ id, ownerId }: { id: string; ownerId: string }) {
         <div className="loading">Opening your board…</div>
       </div>
     );
-  const q = board.questions.find((q) => q.id === selected);
+  const isDouble = editingDouble && !!board.doubleJeopardy;
+  const grid = isDouble ? board.doubleJeopardy! : board;
+  const editGrid = (next: RoundBoard) => {
+    if (selected !== 'final' && !next.questions.some((q) => q.id === selected))
+      setSelected(next.questions[0].id);
+    edit(
+      isDouble
+        ? {
+            ...board,
+            doubleJeopardy: {
+              categories: next.categories,
+              rows: next.rows,
+              questions: next.questions,
+            },
+          }
+        : { ...board, categories: next.categories, rows: next.rows, questions: next.questions },
+    );
+  };
+  const q = grid.questions.find((q) => q.id === selected);
+  function chooseRound(second: boolean) {
+    setEditingDouble(second);
+    setSelected((second ? board!.doubleJeopardy! : board!).questions[0].id);
+  }
   let ready = true;
   try {
     playable(board);
@@ -330,6 +353,7 @@ function EditorInner({ id, ownerId }: { id: string; ownerId: string }) {
                     jsonDirty.current = copy.jsonDirty;
                     setJsonText(copy.jsonText);
                     setImportOpen(copy.importOpen);
+                    setEditingDouble(false);
                     edit(copy.board);
                     setSelected(copy.board.questions[0].id);
                     setPreview(false);
@@ -394,9 +418,10 @@ function EditorInner({ id, ownerId }: { id: string; ownerId: string }) {
             <p className="muted small">
               Include a title, categories with equally sized questions lists, and Final Jeopardy.
               Each clue uses the JSON fields value, question (clue text), and answer (correct
-              response). Mark exactly one dailyDouble as true. Optionally include a tiebreakers list
-              with category, question and answer for each clue. Your host PIN is entered separately
-              below.
+              response). Mark exactly one dailyDouble as true on the first board. Optional
+              doubleJeopardy.categories adds a second board with exactly two Daily Doubles.
+              Optionally include a tiebreakers list with category, question and answer for each
+              clue. Your host PIN is entered separately below.
             </p>
             <div className="button-row">
               <button
@@ -457,6 +482,7 @@ function EditorInner({ id, ownerId }: { id: string; ownerId: string }) {
                     if (!window.confirm('Replace the current board with these JSON clues?')) return;
                     jsonDirty.current = false;
                     edit(result.board);
+                    setEditingDouble(false);
                     setSelected(result.board.questions[0].id);
                     setPreview(false);
                     jsonRef.current = JSON.stringify(boardToQuestionJson(result.board), null, 2);
@@ -523,17 +549,77 @@ function EditorInner({ id, ownerId }: { id: string; ownerId: string }) {
           </small>
         </div>
       </div>
+      <section className="panel round-editor-controls" aria-label="Game rounds">
+        <div className="section-line">
+          <div>
+            <h2>Game rounds</h2>
+            <p className="muted small">
+              One board by default. Add Double Jeopardy for a second round before Final.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="button secondary"
+            disabled={preview}
+            onClick={() => {
+              if (board.doubleJeopardy) {
+                if (!confirm('Remove the Double Jeopardy board and its clues?')) return;
+                const { doubleJeopardy: _removed, ...single } = board;
+                edit(single);
+                setEditingDouble(false);
+                setSelected(board.questions[0].id);
+              } else {
+                const fresh = blankBoard();
+                const second = {
+                  categories: fresh.categories,
+                  rows: fresh.rows,
+                  questions: fresh.questions.map((q, i) => ({
+                    ...q,
+                    value: (q.row + 1) * 400,
+                    dailyDouble: i === 0 || i === fresh.rows,
+                  })),
+                };
+                edit({ ...board, doubleJeopardy: second });
+                setEditingDouble(true);
+                setSelected(second.questions[0].id);
+              }
+            }}
+          >
+            {board.doubleJeopardy ? 'Remove Double Jeopardy' : 'Add Double Jeopardy board'}
+          </button>
+        </div>
+        <div className="button-row" role="group" aria-label="Board to edit">
+          <button
+            type="button"
+            className={`button ${!isDouble ? 'primary' : 'secondary'}`}
+            aria-pressed={!isDouble}
+            onClick={() => chooseRound(false)}
+          >
+            Jeopardy board
+          </button>
+          {board.doubleJeopardy && (
+            <button
+              type="button"
+              className={`button ${isDouble ? 'primary' : 'secondary'}`}
+              aria-pressed={isDouble}
+              onClick={() => chooseRound(true)}
+            >
+              Double Jeopardy board
+            </button>
+          )}
+        </div>
+      </section>
       <div className="editor-toolbar">
         <span className="muted small">
-          {board.categories.length} categories · {board.rows} rows ·{' '}
-          {board.questions.filter((q) => q.prompt && q.answer).length}/{board.questions.length}{' '}
+          {grid.categories.length} categories · {grid.rows} rows ·{' '}
+          {grid.questions.filter((q) => q.prompt && q.answer).length}/{grid.questions.length}{' '}
           complete
         </span>
         <div className="button-row">
           <label className="inline-label">
             Columns
             <select
-              value={board.categories.length}
+              value={grid.categories.length}
               onChange={(e) => {
                 if (!confirm('Changing board size resets the clues. Continue?')) return;
                 const cols = Number(e.target.value);
@@ -541,9 +627,9 @@ function EditorInner({ id, ownerId }: { id: string; ownerId: string }) {
                 next.title = board.title;
                 next.categories = Array.from(
                   { length: cols },
-                  (_, i) => board.categories[i] ?? `Category ${i + 1}`,
+                  (_, i) => grid.categories[i] ?? `Category ${i + 1}`,
                 );
-                next.rows = board.rows;
+                next.rows = grid.rows;
                 next.final = board.final;
                 next.tiebreakers = board.tiebreakers;
                 next.questions = next.categories.flatMap((_, category) =>
@@ -551,14 +637,14 @@ function EditorInner({ id, ownerId }: { id: string; ownerId: string }) {
                     id: crypto.randomUUID(),
                     category,
                     row,
-                    value: (row + 1) * 200,
+                    value: (row + 1) * (isDouble ? 400 : 200),
                     prompt: '',
                     answer: '',
                     notes: '',
-                    dailyDouble: category === 0 && row === 0,
+                    dailyDouble: row === 0 && (category === 0 || (isDouble && category === 1)),
                   })),
                 );
-                edit(next);
+                editGrid(next);
               }}
             >
               {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
@@ -569,23 +655,23 @@ function EditorInner({ id, ownerId }: { id: string; ownerId: string }) {
           <label className="inline-label">
             Rows
             <select
-              value={board.rows}
+              value={grid.rows}
               onChange={(e) => {
                 if (!confirm('Changing board size resets the clues. Continue?')) return;
                 const rows = Number(e.target.value);
-                edit({
-                  ...board,
+                editGrid({
+                  ...grid,
                   rows,
-                  questions: board.categories.flatMap((_, category) =>
+                  questions: grid.categories.flatMap((_, category) =>
                     Array.from({ length: rows }, (_, row) => ({
                       id: crypto.randomUUID(),
                       category,
                       row,
-                      value: (row + 1) * 200,
+                      value: (row + 1) * (isDouble ? 400 : 200),
                       prompt: '',
                       answer: '',
                       notes: '',
-                      dailyDouble: category === 0 && row === 0,
+                      dailyDouble: row === 0 && (category === 0 || (isDouble && category === 1)),
                     })),
                   ),
                 });
@@ -599,8 +685,21 @@ function EditorInner({ id, ownerId }: { id: string; ownerId: string }) {
           <button
             className="text-button"
             onClick={() => {
-              if (confirm('Replace this board with the complete starter board?'))
-                edit(starterBoard());
+              if (confirm('Replace the selected board with the complete starter board?')) {
+                const starter = starterBoard();
+                editGrid(
+                  isDouble
+                    ? {
+                        ...starter,
+                        questions: starter.questions.map((q, i) => ({
+                          ...q,
+                          value: (q.row + 1) * 400,
+                          dailyDouble: i === 0 || i === starter.rows,
+                        })),
+                      }
+                    : starter,
+                );
+              }
             }}
           >
             <Sparkles size={15} /> Load starter board
@@ -613,10 +712,10 @@ function EditorInner({ id, ownerId }: { id: string; ownerId: string }) {
             <div
               className="jeopardy-board editor-board"
               style={{
-                gridTemplateColumns: `repeat(${board.categories.length}, minmax(108px,1fr))`,
+                gridTemplateColumns: `repeat(${grid.categories.length}, minmax(108px,1fr))`,
               }}
             >
-              {board.categories.map((category, i) => (
+              {grid.categories.map((category, i) => (
                 <div className="category" key={i}>
                   {preview ? (
                     category
@@ -626,20 +725,18 @@ function EditorInner({ id, ownerId }: { id: string; ownerId: string }) {
                       maxLength={80}
                       value={category}
                       onChange={(e) =>
-                        edit({
-                          ...board,
-                          categories: board.categories.map((c, j) =>
-                            j === i ? e.target.value : c,
-                          ),
+                        editGrid({
+                          ...grid,
+                          categories: grid.categories.map((c, j) => (j === i ? e.target.value : c)),
                         })
                       }
                     />
                   )}
                 </div>
               ))}
-              {Array.from({ length: board.rows }, (_, row) =>
-                board.categories.map((_, category) => {
-                  const tile = board.questions.find(
+              {Array.from({ length: grid.rows }, (_, row) =>
+                grid.categories.map((_, category) => {
+                  const tile = grid.questions.find(
                     (q) => q.row === row && q.category === category,
                   )!;
                   return (
@@ -673,7 +770,7 @@ function EditorInner({ id, ownerId }: { id: string; ownerId: string }) {
         </div>
         <section className="panel question-editor">
           <span className="eyebrow">
-            {q ? `${board.categories[q.category]} · ${money(q.value)}` : 'THE GRAND FINALE'}
+            {q ? `${grid.categories[q.category]} · ${money(q.value)}` : 'THE GRAND FINALE'}
           </span>
           <h2>{q ? 'Make them think.' : 'One final clue.'}</h2>
           {q ? (
@@ -687,9 +784,9 @@ function EditorInner({ id, ownerId }: { id: string; ownerId: string }) {
                   value={q.value}
                   disabled={preview}
                   onChange={(e) =>
-                    edit({
-                      ...board,
-                      questions: board.questions.map((x) =>
+                    editGrid({
+                      ...grid,
+                      questions: grid.questions.map((x) =>
                         x.id === q.id ? { ...x, value: Number(e.target.value) } : x,
                       ),
                     })
@@ -705,9 +802,9 @@ function EditorInner({ id, ownerId }: { id: string; ownerId: string }) {
                   disabled={preview}
                   placeholder="What will you ask?"
                   onChange={(e) =>
-                    edit({
-                      ...board,
-                      questions: board.questions.map((x) =>
+                    editGrid({
+                      ...grid,
+                      questions: grid.questions.map((x) =>
                         x.id === q.id ? { ...x, prompt: e.target.value } : x,
                       ),
                     })
@@ -723,9 +820,9 @@ function EditorInner({ id, ownerId }: { id: string; ownerId: string }) {
                   disabled={preview}
                   placeholder="The correct response is…"
                   onChange={(e) =>
-                    edit({
-                      ...board,
-                      questions: board.questions.map((x) =>
+                    editGrid({
+                      ...grid,
+                      questions: grid.questions.map((x) =>
                         x.id === q.id ? { ...x, answer: e.target.value } : x,
                       ),
                     })
@@ -740,9 +837,9 @@ function EditorInner({ id, ownerId }: { id: string; ownerId: string }) {
                   value={q.notes}
                   disabled={preview}
                   onChange={(e) =>
-                    edit({
-                      ...board,
-                      questions: board.questions.map((x) =>
+                    editGrid({
+                      ...grid,
+                      questions: grid.questions.map((x) =>
                         x.id === q.id ? { ...x, notes: e.target.value } : x,
                       ),
                     })
@@ -755,11 +852,12 @@ function EditorInner({ id, ownerId }: { id: string; ownerId: string }) {
                   checked={q.dailyDouble}
                   disabled={preview}
                   onChange={(e) =>
-                    edit({
-                      ...board,
-                      questions: board.questions.map((x) => ({
+                    editGrid({
+                      ...grid,
+                      questions: grid.questions.map((x) => ({
                         ...x,
-                        dailyDouble: x.id === q.id ? e.target.checked : false,
+                        dailyDouble:
+                          x.id === q.id ? e.target.checked : isDouble ? x.dailyDouble : false,
                       })),
                     })
                   }
@@ -767,7 +865,8 @@ function EditorInner({ id, ownerId }: { id: string; ownerId: string }) {
                 <Star size={18} /> Make this the Daily Double
               </label>
               <p className="muted small">
-                Hidden from players until selected. Exactly one per board.
+                Hidden from players until selected.{' '}
+                {isDouble ? 'Exactly two on this board.' : 'Exactly one on this board.'}
               </p>
             </>
           ) : (

@@ -4,6 +4,7 @@ export type Phase =
   | 'practiceReady'
   | 'practiceOpen'
   | 'practiceAnswer'
+  | 'roundBreak'
   | 'board'
   | 'question'
   | 'answering'
@@ -60,6 +61,7 @@ export interface Session {
   joinCode: string;
   title: string;
   board: Board;
+  round?: 1 | 2;
   version: number;
   actionVersion: number;
   phase: Phase;
@@ -139,6 +141,8 @@ export interface SessionView {
   runtimeAt?: number;
   controllerOwned: boolean;
   players: Player[];
+  round?: 1 | 2;
+  hasDoubleJeopardy?: boolean;
   categories: string[];
   rows: number;
   tiles: { id: string; category: number; row: number; value: number; used: boolean }[];
